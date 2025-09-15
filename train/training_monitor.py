@@ -338,8 +338,8 @@ class TrainingMonitor:
                 q_mean, q_std, strategic_score, time_elapsed
             ])
         
-        # Print progress
-        if episode % 100 == 0:
+        # Print progress (only if not disabled)
+        if episode % 100 == 0 and getattr(self, '_show_progress', True):
             self._print_progress(episode, stats, win_rate, strategic_score)
     
     def analyze_strategic_play(self, prev_board: Connect4Board, action: int,

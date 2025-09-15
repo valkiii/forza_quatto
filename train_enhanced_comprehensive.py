@@ -379,6 +379,8 @@ def train_enhanced_agent():
     # Setup logging and monitoring
     log_file = setup_enhanced_logging("logs_enhanced")
     monitor = TrainingMonitor(log_dir="logs_enhanced", save_plots=True, eval_frequency=config["eval_frequency"])
+    # Disable TrainingMonitor's verbose progress printing
+    monitor._show_progress = False
     print(f"📊 Logging to: {log_file}")
     print("📊 TrainingMonitor enabled - will generate training_progress_ep_*.png plots")
     
@@ -471,10 +473,12 @@ def train_enhanced_agent():
         # Get opponent
         current_opponent, opponent_name = get_current_opponent(episode_num)
         
-        # Announce phase changes (less frequently)
-        if opponent_name != current_opponent_name and episode_num % 1000 == 0:
-            print(f"🔄 Phase: {opponent_name} training (episode {episode_num:,})")
+        # Announce phase changes
+        if opponent_name != current_opponent_name:
+            print(f"\n🔄 PHASE CHANGE at episode {episode_num:,}: {current_opponent_name} → {opponent_name}")
             current_opponent_name = opponent_name
+            # Update monitor's opponent tracking
+            monitor.set_current_opponent(opponent_name)
         
         # Reset episode
         agent.reset_episode()
@@ -494,7 +498,7 @@ def train_enhanced_agent():
         
         episode_rewards.append(episode_reward)
         
-        # Log episode with monitor (pass strategic score)
+        # Log episode with monitor (disable verbose progress printing)
         monitor.log_episode(episode_num, episode_reward, agent)
         
         # Periodic evaluation
