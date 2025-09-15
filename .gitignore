@@ -1,0 +1,84 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual environments
+venv/
+env/
+ENV/
+.venv/
+.env/
+
+# PyTorch models
+*.pt
+*.pth
+models/
+models_*/
+checkpoints/
+
+# Training logs and outputs
+logs/
+logs_*/
+*.log
+*.csv
+runs/
+tensorboard_logs/
+
+# Plots and visualizations
+*.png
+*.jpg
+*.jpeg
+*.gif
+plots/
+figures/
+
+# Jupyter Notebook
+.ipynb_checkpoints/
+*.ipynb
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Project specific
+temp/
+tmp/
+test_*/
+experiments/
+results/
+data/
+saved_models/
+
+# Config files with secrets
+config_secret.json
+.env.local

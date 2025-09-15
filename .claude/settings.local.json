@@ -1,0 +1,33 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(mkdir:*)",
+      "Bash(python -m pytest tests/ -v)",
+      "Bash(python:*)",
+      "Bash(PYTHONPATH=/Users/vc/Research/forza_quattro python train/q_learning_train.py)",
+      "Bash(PYTHONPATH=/Users/vc/Research/forza_quattro python demo.py)",
+      "Bash(PYTHONPATH=/Users/vc/Research/forza_quattro python test_heuristic.py)",
+      "Bash(PYTHONPATH=/Users/vc/Research/forza_quattro python evaluate_agents.py)",
+      "Bash(PYTHONPATH=/Users/vc/Research/forza_quattro python test_q_agent.py)",
+      "Bash(PYTHONPATH=/Users/vc/Research/forza_quattro python test_dqn.py)",
+      "Bash(PYTHONPATH=/Users/vc/Research/forza_quattro python -c \"\nfrom agents.double_dqn_agent import DoubleDQNAgent\nfrom game.board import Connect4Board\nimport torch\n\nprint(''Testing Double DQN Agent...'')\nprint(''Device available:'', ''CUDA'' if torch.cuda.is_available() else ''CPU'')\n\n# Initialize agent\nagent = DoubleDQNAgent(player_id=1, state_size=84, action_size=7, seed=42)\nprint(f''Agent initialized: {agent}'')\nprint(f''Using device: {agent.device}'')\n\n# Test state encoding\nboard = Connect4Board()\nboard.make_move(3, 1)  # Make a test move\nboard.make_move(3, 2)  # Opponent move\n\nstate = board.get_state()\nencoded = agent.encode_state(state)\nprint(f''State encoding shape: {encoded.shape}'')\nprint(f''First 10 encoded values: {encoded[:10]}'')\n\n# Test action selection\nlegal_moves = board.get_legal_moves()\naction = agent.choose_action(state, legal_moves)\nprint(f''Legal moves: {legal_moves}'')\nprint(f''Selected action: {action}'')\n\n# Test experience storage\nnext_state = state.copy()\nagent.observe(state, action, 1.0, next_state, False)\nprint(f''Experience stored. Buffer size: {len(agent.memory)}'')\n\n# Test statistics\nstats = agent.get_stats()\nprint(f''Agent stats: {stats}'')\n\nprint(''✓ Double DQN Agent working correctly!'')\n\")",
+      "Bash(PYTHONPATH=/Users/vc/Research/forza_quattro python -c \"\nfrom train.double_dqn_train import create_double_dqn_config, play_double_dqn_training_game\nfrom agents.double_dqn_agent import DoubleDQNAgent\nfrom agents.random_agent import RandomAgent\nimport torch\n\nprint(''Testing Double DQN Training Script...'')\n\n# Test configuration\nconfig = create_double_dqn_config()\nprint(''✓ Configuration created'')\n\n# Create agents\nagent = DoubleDQNAgent(\n    player_id=1,\n    state_size=84,\n    action_size=7,\n    lr=config[''learning_rate''],\n    gamma=config[''discount_factor''],\n    epsilon_start=config[''epsilon_start''],\n    seed=config[''random_seed'']\n)\nopponent = RandomAgent(player_id=2, seed=config[''random_seed''] + 1)\nprint(f''✓ Agents created: {agent} vs {opponent}'')\n\n# Test single training game\nprint(''Running test training game...'')\nwinner, game_length = play_double_dqn_training_game(agent, opponent)\nprint(f''✓ Training game completed: Winner={winner}, Length={game_length}'')\n\n# Check if agent learned anything\nstats = agent.get_stats()\nprint(f''Agent stats after game: {stats}'')\n\nprint(''✓ Double DQN training pipeline working correctly!'')\n\")",
+      "Bash(PYTHONPATH=/Users/vc/Research/forza_quattro python -c \"\nfrom agents.double_dqn_agent import DoubleDQNAgent\nfrom agents.heuristic_agent import HeuristicAgent\nfrom game.board import Connect4Board\n\nprint(''Testing Double DQN vs Heuristic Agent...'')\n\n# Create agents\ndqn_agent = DoubleDQNAgent(player_id=1, seed=42)\nheuristic_agent = HeuristicAgent(player_id=2, seed=43)\n\n# Play a quick game\nboard = Connect4Board()\nagents = [dqn_agent, heuristic_agent]\nmove_count = 0\n\nprint(''Game in progress...'')\nwhile not board.is_terminal() and move_count < 42:\n    current_agent = agents[move_count % 2]\n    legal_moves = board.get_legal_moves()\n    action = current_agent.choose_action(board.get_state(), legal_moves)\n    board.make_move(action)\n    \n    # Let DQN agent observe (basic observation for testing)\n    if current_agent == dqn_agent and move_count > 0:\n        dqn_agent.observe(board.get_state(), action, 0.0, board.get_state(), False)\n    \n    move_count += 1\n\nwinner = board.check_winner()\nprint(f''Game completed: Winner={winner}, Moves={move_count}'')\nprint(''Final board:'')\nprint(board.render())\n\nprint(''✓ Double DQN can play against strategic opponents!'')\n\")",
+      "Bash(PYTHONPATH:*)",
+      "Bash(grep:*)",
+      "Bash(timeout:*)",
+      "Bash(chmod:*)",
+      "Bash(echo:*)",
+      "Bash(sed:*)",
+      "Bash(mv:*)",
+      "Bash(rm:*)",
+      "Bash(true)",
+      "Bash(git init:*)",
+      "Bash(git branch:*)",
+      "Bash(git config:*)",
+      "Bash(git add:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}
