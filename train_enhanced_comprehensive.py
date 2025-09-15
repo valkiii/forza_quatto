@@ -159,7 +159,7 @@ def play_enhanced_training_game(agent: EnhancedDoubleDQNAgent, opponent,
         'threats_created': 0,
         'threats_blocked': 0,
         'center_moves': 0,
-        'strategic_score': 0
+        'strategic_score': 0.0
     }
     
     # N-step experience tracking for agent
@@ -181,13 +181,22 @@ def play_enhanced_training_game(agent: EnhancedDoubleDQNAgent, opponent,
             if action in [2, 3, 4]:  # Center columns
                 strategic_stats['center_moves'] += 1
             
-            # Check if move creates threat
+            # Check for immediate winning move
             temp_board = Connect4Board()
             temp_board.board = state_before.copy()
             temp_board.make_move(action, agent.player_id)
             
             if temp_board.check_winner() == agent.player_id:
                 strategic_stats['threats_created'] += 1
+            
+            # Check for blocking opponent's winning move
+            opponent_id = 3 - agent.player_id
+            temp_board_opp = Connect4Board()
+            temp_board_opp.board = state_before.copy()
+            temp_board_opp.make_move(action, opponent_id)
+            
+            if temp_board_opp.check_winner() == opponent_id:
+                strategic_stats['threats_blocked'] += 1
         
         # Make move
         board.make_move(action, current_player.player_id)
@@ -257,9 +266,12 @@ def play_enhanced_training_game(agent: EnhancedDoubleDQNAgent, opponent,
     # Calculate strategic score
     if len(agent_moves) > 0:
         strategic_stats['strategic_score'] = (
-            strategic_stats['threats_created'] * 2 +
-            strategic_stats['center_moves'] * 0.5
+            strategic_stats['threats_created'] * 3.0 +  # Winning moves are very valuable
+            strategic_stats['threats_blocked'] * 2.0 +  # Blocking is important  
+            strategic_stats['center_moves'] * 0.5       # Center play is good
         ) / len(agent_moves)
+    else:
+        strategic_stats['strategic_score'] = 0.0
     
     return board.check_winner(), move_count, strategic_stats
 
@@ -499,7 +511,8 @@ def train_enhanced_agent():
         episode_rewards.append(episode_reward)
         
         # Log episode with monitor (disable verbose progress printing)
-        monitor.log_episode(episode_num, episode_reward, agent)
+        strategic_score_for_monitor = strategic_stats.get('strategic_score', 0.0)
+        monitor.log_episode(episode_num, episode_reward, agent, strategic_score=strategic_score_for_monitor)
         
         # Periodic evaluation
         if episode_num % config["eval_frequency"] == 0:

@@ -269,7 +269,7 @@ class TrainingMonitor:
     
     def log_episode(self, episode: int, reward: float, agent: DoubleDQNAgent, 
                    win_rate: float = None, q_values: np.ndarray = None, 
-                   collect_q_values: bool = True):
+                   collect_q_values: bool = True, strategic_score: float = None):
         """Log metrics for a single episode.
         
         Args:
@@ -322,9 +322,12 @@ class TrainingMonitor:
         else:
             q_mean = q_std = 0.0
         
-        # Strategic score
-        strategic_score = self._calculate_strategic_score()
-        self.strategic_metrics.append(strategic_score)
+        # Strategic score - use passed value if available, otherwise calculate
+        if strategic_score is not None:
+            final_strategic_score = strategic_score
+        else:
+            final_strategic_score = self._calculate_strategic_score()
+        self.strategic_metrics.append(final_strategic_score)
         
         # Time tracking
         time_elapsed = time.time() - self.start_time
@@ -335,12 +338,12 @@ class TrainingMonitor:
             writer.writerow([
                 episode, reward, win_rate or 0.0, self.overall_win_rate, stats['epsilon'],
                 stats['buffer_size'], stats['training_steps'],
-                q_mean, q_std, strategic_score, time_elapsed
+                q_mean, q_std, final_strategic_score, time_elapsed
             ])
         
         # Print progress (only if not disabled)
         if episode % 100 == 0 and getattr(self, '_show_progress', True):
-            self._print_progress(episode, stats, win_rate, strategic_score)
+            self._print_progress(episode, stats, win_rate, final_strategic_score)
     
     def analyze_strategic_play(self, prev_board: Connect4Board, action: int,
                              new_board: Connect4Board, agent_id: int):
