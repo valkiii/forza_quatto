@@ -66,7 +66,7 @@ def create_enhanced_config() -> Dict[str, Any]:
         "random_diversity_rate": 0.1,  # 10% random for diversity
         
         # Self-Play Improvements (NEW)
-        "self_play_pool_size": 10,  # More diverse opponents
+        "self_play_pool_size": 5,  # Balanced diversity vs memory efficiency
         "mcts_simulations": 50,  # MCTS for smarter play (optional)
         "use_mcts_evaluation": False,  # Enable MCTS during play
         
@@ -92,36 +92,103 @@ def create_enhanced_config() -> Dict[str, Any]:
 
 
 class MCTSActionSelector:
-    """Monte Carlo Tree Search for enhanced action selection during evaluation."""
+    """Proper Monte Carlo Tree Search for enhanced action selection during evaluation."""
     
     def __init__(self, agent, simulations: int = 50):
         self.agent = agent
         self.simulations = simulations
+        self.c_puct = 1.0  # UCB exploration constant
     
     def select_action(self, board_state: np.ndarray, legal_moves: list) -> int:
-        """Use MCTS with Q-values as priors for smarter play."""
+        """Use proper MCTS with Q-values as priors for smarter play."""
         if len(legal_moves) == 1:
             return legal_moves[0]
         
-        # Get Q-values as priors
+        # Get Q-values as neural network priors
         encoded_state = self.agent.encode_state(board_state)
         state_tensor = torch.FloatTensor(encoded_state).unsqueeze(0).to(self.agent.device)
         
         with torch.no_grad():
             q_values = self.agent.online_net(state_tensor).cpu().numpy()[0]
         
-        # Simple MCTS simulation using Q-values as priors
-        action_scores = {}
-        for action in legal_moves:
-            # Use Q-value as base score
-            base_score = q_values[action]
-            
-            # Add small random component for exploration
-            noise = np.random.normal(0, 0.1)
-            action_scores[action] = base_score + noise
+        # MCTS tree search with neural network guidance
+        visit_counts = {action: 0 for action in legal_moves}
+        action_values = {action: 0.0 for action in legal_moves}
         
-        # Select action with highest score
-        return max(action_scores, key=action_scores.get)
+        for _ in range(self.simulations):
+            # Selection: choose action with highest UCB score
+            best_action = self._select_best_action(legal_moves, q_values, visit_counts, action_values)
+            
+            # Simulation: play out a random game from this action
+            simulation_value = self._simulate_game(board_state, best_action)
+            
+            # Backpropagation: update statistics
+            visit_counts[best_action] += 1
+            action_values[best_action] += (simulation_value - action_values[best_action]) / visit_counts[best_action]
+        
+        # Select action with highest visit count (most promising)
+        return max(visit_counts, key=visit_counts.get)
+    
+    def _select_best_action(self, legal_moves, q_priors, visit_counts, action_values):
+        """Select action using UCB1 with neural network priors."""
+        total_visits = sum(visit_counts.values())
+        best_score = float('-inf')
+        best_action = legal_moves[0]
+        
+        for action in legal_moves:
+            if visit_counts[action] == 0:
+                # Unvisited actions get priority
+                return action
+            
+            # UCB1 score with neural network prior
+            exploitation = action_values[action]
+            exploration = self.c_puct * q_priors[action] * np.sqrt(total_visits) / (1 + visit_counts[action])
+            ucb_score = exploitation + exploration
+            
+            if ucb_score > best_score:
+                best_score = ucb_score
+                best_action = action
+        
+        return best_action
+    
+    def _simulate_game(self, initial_state, first_action):
+        """Simulate a random game to completion and return value."""
+        from game.board import Connect4Board
+        
+        # Set up simulation
+        board = Connect4Board()
+        board.board = initial_state.copy()
+        
+        # Make the selected first move
+        board.make_move(first_action, self.agent.player_id)
+        
+        # No need to create agent objects for random simulation
+        
+        # Simulate random play to completion
+        current_player_id = 3 - self.agent.player_id  # Opponent plays next
+        move_count = 1
+        
+        while not board.is_terminal() and move_count < 42:
+            legal_moves = board.get_legal_moves()
+            if not legal_moves:
+                break
+            
+            # Random move
+            action = np.random.choice(legal_moves)
+            board.make_move(action, current_player_id)
+            
+            # Switch players
+            current_player_id = 3 - current_player_id
+            move_count += 1
+        
+        # Return value from agent's perspective
+        winner = board.check_winner()
+        if winner == self.agent.player_id:
+            return 1.0  # Win
+        elif winner is not None:
+            return -1.0  # Loss
+        else:
+            return 0.1   # Draw (slightly positive)
 
 
 def setup_enhanced_logging(log_dir: str) -> str:
@@ -217,7 +284,9 @@ def play_enhanced_training_game(agent: EnhancedDoubleDQNAgent, opponent,
                     agent.player_id, board.is_terminal(), reward_config
                 )
             else:
-                # Simple reward
+                # Strategic reward even without full config
+                reward = 0.0  # Base reward
+                
                 if board.is_terminal():
                     winner = board.check_winner()
                     if winner == agent.player_id:
@@ -227,7 +296,17 @@ def play_enhanced_training_game(agent: EnhancedDoubleDQNAgent, opponent,
                     else:
                         reward = 1.0
                 else:
-                    reward = 0.0
+                    # Add small strategic rewards for good moves
+                    action = prev_exp['action']
+                    if action in [2, 3, 4]:  # Center columns
+                        reward += 0.1
+                    
+                    # Check if move blocks opponent threat
+                    temp_board = Connect4Board()
+                    temp_board.board = prev_exp['state'].copy()
+                    temp_board.make_move(action, 3 - agent.player_id)  # Opponent move
+                    if temp_board.check_winner() == (3 - agent.player_id):
+                        reward += 0.5  # Blocking reward
             
             # Store experience
             next_state = None if board.is_terminal() else board.get_state().copy()
@@ -254,12 +333,18 @@ def play_enhanced_training_game(agent: EnhancedDoubleDQNAgent, opponent,
                 agent.player_id, True, reward_config
             )
         else:
+            # Strategic final reward even without full config
             if winner == agent.player_id:
                 final_reward = 10.0
             elif winner is not None:
                 final_reward = -10.0
             else:
                 final_reward = 1.0
+            
+            # Add strategic bonus for final move
+            action = final_exp['action']
+            if action in [2, 3, 4]:  # Center columns
+                final_reward += 0.1
         
         agent.observe(final_exp['state'], final_exp['action'], final_reward, None, True)
     
