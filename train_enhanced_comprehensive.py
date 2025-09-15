@@ -559,9 +559,10 @@ def train_enhanced_agent():
             # Log evaluation episode with win rate data
             monitor.log_episode(episode_num, avg_reward, agent, win_rate=current_win_rate)
             
-            # Generate training progress plots (less frequently for cleaner output)
-            if episode_num % 5000 == 0:  # Only generate plots every 5000 episodes
+            # Generate training progress plots (keep existing frequency)
+            if episode_num % 1000 == 0:  # Generate plots every 1000 episodes
                 monitor.generate_training_report(agent, episode_num)
+                print(f"📊 Training plots generated for episode {episode_num:,}")
         
         # Save checkpoints and update self-play pool
         if episode_num % config["save_frequency"] == 0:

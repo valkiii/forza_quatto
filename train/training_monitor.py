@@ -614,44 +614,46 @@ class TrainingMonitor:
     
     def generate_training_report(self, agent: DoubleDQNAgent, episode: int):
         """Generate comprehensive training progress report."""
-        print(f"\n📈 TRAINING REPORT - Episode {episode}")
-        print("=" * 50)
+        # Only print report if progress printing is enabled
+        if getattr(self, '_show_progress', True):
+            print(f"\n📈 TRAINING REPORT - Episode {episode}")
+            print("=" * 50)
+            
+            if len(self.episode_rewards) < 10:
+                print("Not enough data for comprehensive report.")
+                return
+            
+            # Recent performance (last 100 episodes)
+            recent_episodes = min(100, len(self.episode_rewards))
+            recent_rewards = self.episode_rewards[-recent_episodes:]
+            recent_win_rate = sum(1 for r in recent_rewards if r > 0) / recent_episodes
+            
+            print(f"Recent Performance ({recent_episodes} episodes):")
+            print(f"  Win Rate: {recent_win_rate:.1%}")
+            print(f"  Avg Reward: {np.mean(recent_rewards):.2f}")
+            print(f"  Reward Std: {np.std(recent_rewards):.2f}")
+            
+            # Learning progress
+            stats = agent.get_stats()
+            print(f"\nLearning Progress:")
+            print(f"  Training Steps: {stats['training_steps']:,}")
+            print(f"  Experience Buffer: {stats['buffer_size']:,}")
+            print(f"  Exploration Rate: {stats['epsilon']:.4f}")
+            
+            # Strategic analysis
+            strategic_score = self._calculate_strategic_score()
+            print(f"\nStrategic Analysis:")
+            print(f"  Strategic Score: {strategic_score:.3f}")
+            self._print_strategic_breakdown()
+            
+            # Time analysis
+            time_elapsed = time.time() - self.start_time
+            episodes_per_hour = episode / (time_elapsed / 3600)
+            print(f"\nTraining Efficiency:")
+            print(f"  Time Elapsed: {time_elapsed/60:.1f} minutes")
+            print(f"  Episodes/Hour: {episodes_per_hour:.1f}")
         
-        if len(self.episode_rewards) < 10:
-            print("Not enough data for comprehensive report.")
-            return
-        
-        # Recent performance (last 100 episodes)
-        recent_episodes = min(100, len(self.episode_rewards))
-        recent_rewards = self.episode_rewards[-recent_episodes:]
-        recent_win_rate = sum(1 for r in recent_rewards if r > 0) / recent_episodes
-        
-        print(f"Recent Performance ({recent_episodes} episodes):")
-        print(f"  Win Rate: {recent_win_rate:.1%}")
-        print(f"  Avg Reward: {np.mean(recent_rewards):.2f}")
-        print(f"  Reward Std: {np.std(recent_rewards):.2f}")
-        
-        # Learning progress
-        stats = agent.get_stats()
-        print(f"\nLearning Progress:")
-        print(f"  Training Steps: {stats['training_steps']:,}")
-        print(f"  Experience Buffer: {stats['buffer_size']:,}")
-        print(f"  Exploration Rate: {stats['epsilon']:.4f}")
-        
-        # Strategic analysis
-        strategic_score = self._calculate_strategic_score()
-        print(f"\nStrategic Analysis:")
-        print(f"  Strategic Score: {strategic_score:.3f}")
-        self._print_strategic_breakdown()
-        
-        # Time analysis
-        time_elapsed = time.time() - self.start_time
-        episodes_per_hour = episode / (time_elapsed / 3600)
-        print(f"\nTraining Efficiency:")
-        print(f"  Time Elapsed: {time_elapsed/60:.1f} minutes")
-        print(f"  Episodes/Hour: {episodes_per_hour:.1f}")
-        
-        # Save visualization if enabled
+        # Always save visualization if enabled (regardless of progress printing setting)
         if self.save_plots and episode % 1000 == 0:
             self._generate_plots(episode, agent)
     
