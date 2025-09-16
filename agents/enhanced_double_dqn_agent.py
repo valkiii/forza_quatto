@@ -399,8 +399,13 @@ class EnhancedDoubleDQNAgent(BaseAgent):
             with torch.no_grad():
                 next_state_tensor = torch.FloatTensor(last_exp.next_state).unsqueeze(0).to(self.device)
                 next_q_values = self.target_net(next_state_tensor)
+                # Clamp Q-values to prevent bootstrap explosion
+                next_q_values = torch.clamp(next_q_values, min=-100, max=100)
                 max_next_q = next_q_values.max().item()
                 n_step_return += gamma_n * max_next_q
+        
+        # Clamp final n-step return
+        n_step_return = max(-100.0, min(100.0, n_step_return))
         
         return first_state, n_step_return, last_exp.next_state, last_exp.done
     
@@ -528,6 +533,10 @@ class EnhancedDoubleDQNAgent(BaseAgent):
             next_q_values = self.target_net(next_states_t).gather(1, next_actions).squeeze(1)
             gamma_n = self.gamma ** self.n_step
             targets = rewards + (gamma_n * next_q_values * (1.0 - dones))
+        
+        # Clamp Q-values to prevent explosion
+        current_q = torch.clamp(current_q, min=-100, max=100)
+        targets = torch.clamp(targets, min=-100, max=100)
         
         # Compute loss with importance sampling weights
         td_errors = current_q - targets

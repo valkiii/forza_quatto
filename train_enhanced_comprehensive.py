@@ -32,7 +32,8 @@ def create_enhanced_config() -> Dict[str, Any]:
         
         # Learning Parameters (Improved)
         "learning_rate": 5e-5,  # Ultra-conservative for stability
-        "discount_factor": 0.95,
+        "discount_factor": 0.95,  # MUST be 0.95, not 0.99
+        "gradient_clip_norm": 1.0,  # Prevent gradient explosion
         "epsilon_start": 1.0,
         "epsilon_end": 0.01,  # Lowered from 0.05 for less exploration
         "epsilon_decay": 0.9998,
@@ -70,16 +71,16 @@ def create_enhanced_config() -> Dict[str, Any]:
         "mcts_simulations": 50,  # MCTS for smarter play (optional)
         "use_mcts_evaluation": False,  # Enable MCTS during play
         
-        # Reward System
+        # Reward System (Scaled down for stability)
         "reward_system": "enhanced",
         "reward_config": {
-            "win_reward": 10.0,
-            "loss_penalty": -10.0,
-            "draw_reward": 1.0,
-            "threat_reward": 3.0,  # Amplified strategic rewards
-            "block_reward": 2.0,
-            "center_bonus": 0.5,
-            "height_penalty": -0.1
+            "win_reward": 1.0,     # Reduced from 10.0
+            "loss_penalty": -1.0,   # Reduced from -10.0  
+            "draw_reward": 0.1,     # Reduced from 1.0
+            "threat_reward": 0.3,   # Reduced from 3.0
+            "block_reward": 0.2,    # Reduced from 2.0
+            "center_bonus": 0.05,   # Reduced from 0.5
+            "height_penalty": -0.01 # Reduced from -0.1
         },
         
         # Monitoring and Stopping
@@ -290,23 +291,23 @@ def play_enhanced_training_game(agent: EnhancedDoubleDQNAgent, opponent,
                 if board.is_terminal():
                     winner = board.check_winner()
                     if winner == agent.player_id:
-                        reward = 10.0
+                        reward = 1.0  # Scaled down from 10.0
                     elif winner is not None:
-                        reward = -10.0
+                        reward = -1.0  # Scaled down from -10.0
                     else:
-                        reward = 1.0
+                        reward = 0.1  # Scaled down from 1.0
                 else:
                     # Add small strategic rewards for good moves
                     action = prev_exp['action']
                     if action in [2, 3, 4]:  # Center columns
-                        reward += 0.1
+                        reward += 0.01  # Scaled down from 0.1
                     
                     # Check if move blocks opponent threat
                     temp_board = Connect4Board()
                     temp_board.board = prev_exp['state'].copy()
                     temp_board.make_move(action, 3 - agent.player_id)  # Opponent move
                     if temp_board.check_winner() == (3 - agent.player_id):
-                        reward += 0.5  # Blocking reward
+                        reward += 0.05  # Scaled down from 0.5
             
             # Store experience
             next_state = None if board.is_terminal() else board.get_state().copy()
@@ -335,16 +336,16 @@ def play_enhanced_training_game(agent: EnhancedDoubleDQNAgent, opponent,
         else:
             # Strategic final reward even without full config
             if winner == agent.player_id:
-                final_reward = 10.0
+                final_reward = 1.0  # Scaled down from 10.0
             elif winner is not None:
-                final_reward = -10.0
+                final_reward = -1.0  # Scaled down from -10.0
             else:
-                final_reward = 1.0
+                final_reward = 0.1  # Scaled down from 1.0
             
             # Add strategic bonus for final move
             action = final_exp['action']
             if action in [2, 3, 4]:  # Center columns
-                final_reward += 0.1
+                final_reward += 0.01  # Scaled down from 0.1
         
         agent.observe(final_exp['state'], final_exp['action'], final_reward, None, True)
     
@@ -585,13 +586,13 @@ def train_enhanced_agent():
             agent, current_opponent, config["reward_config"]
         )
         
-        # Calculate episode reward
+        # Calculate episode reward (scaled down for stability)
         if winner == agent.player_id:
-            episode_reward = 10.0
+            episode_reward = 1.0  # Scaled down from 10.0
         elif winner is not None:
-            episode_reward = -10.0
+            episode_reward = -1.0  # Scaled down from -10.0
         else:
-            episode_reward = 1.0
+            episode_reward = 0.1  # Scaled down from 1.0
         
         episode_rewards.append(episode_reward)
         
@@ -656,6 +657,14 @@ def train_enhanced_agent():
             
             # Log evaluation episode with win rate data
             monitor.log_episode(episode_num, avg_reward, agent, win_rate=current_win_rate)
+            
+            # Learning rate decay for stability
+            if episode_num % 10000 == 0:
+                old_lr = agent.optimizer.param_groups[0]['lr']
+                for param_group in agent.optimizer.param_groups:
+                    param_group['lr'] *= 0.9
+                new_lr = agent.optimizer.param_groups[0]['lr']
+                print(f"📉 Learning rate decayed: {old_lr:.2e} → {new_lr:.2e}")
             
             # Generate training progress plots (keep existing frequency)
             if episode_num % 1000 == 0:  # Generate plots every 1000 episodes
