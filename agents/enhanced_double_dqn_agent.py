@@ -48,6 +48,17 @@ class DuelingNetwork(nn.Module):
             nn.ReLU(),
             nn.Linear(256, action_size)
         )
+        
+        # Initialize weights for stability
+        self._initialize_weights()
+    
+    def _initialize_weights(self):
+        """Initialize network weights for stability."""
+        for m in self.modules():
+            if isinstance(m, nn.Linear):
+                nn.init.xavier_uniform_(m.weight)
+                if m.bias is not None:
+                    nn.init.constant_(m.bias, 0)
     
     def forward(self, x):
         """Forward pass through dueling network."""
@@ -367,7 +378,9 @@ class EnhancedDoubleDQNAgent(BaseAgent):
         # Get Q-values from online network
         state_tensor = torch.FloatTensor(encoded_state).unsqueeze(0).to(self.device)
         with torch.no_grad():
-            q_values = self.online_net(state_tensor).cpu().numpy()[0]
+            q_values = self.online_net(state_tensor)
+            q_values = torch.clamp(q_values, min=-100, max=100)  # Prevent explosion during action selection
+            q_values = q_values.cpu().numpy()[0]
         
         # Mask illegal moves
         masked_q_values = q_values.copy()
@@ -399,9 +412,9 @@ class EnhancedDoubleDQNAgent(BaseAgent):
             with torch.no_grad():
                 next_state_tensor = torch.FloatTensor(last_exp.next_state).unsqueeze(0).to(self.device)
                 next_q_values = self.target_net(next_state_tensor)
-                # Clamp Q-values to prevent bootstrap explosion
                 next_q_values = torch.clamp(next_q_values, min=-100, max=100)
                 max_next_q = next_q_values.max().item()
+                max_next_q = max(-100.0, min(100.0, max_next_q))  # Double safety
                 n_step_return += gamma_n * max_next_q
         
         # Clamp final n-step return
@@ -520,23 +533,26 @@ class EnhancedDoubleDQNAgent(BaseAgent):
         ])
         next_states_t = torch.FloatTensor(next_states_array).to(self.device)
         
-        # Current Q values
-        current_q = self.online_net(states).gather(1, actions.unsqueeze(1)).squeeze(1)
+        # Current Q values - CLAMP IMMEDIATELY
+        q_values_all = self.online_net(states)
+        q_values_all = torch.clamp(q_values_all, min=-100, max=100)
+        current_q = q_values_all.gather(1, actions.unsqueeze(1)).squeeze(1)
         
         # Double DQN target calculation
         with torch.no_grad():
-            # Online network selects actions
+            # Online network selects actions - CLAMP IMMEDIATELY
             next_q_online = self.online_net(next_states_t)
+            next_q_online = torch.clamp(next_q_online, min=-100, max=100)
             next_actions = next_q_online.argmax(1, keepdim=True)
             
-            # Target network evaluates actions
-            next_q_values = self.target_net(next_states_t).gather(1, next_actions).squeeze(1)
+            # Target network evaluates actions - CLAMP IMMEDIATELY
+            next_q_target = self.target_net(next_states_t)
+            next_q_target = torch.clamp(next_q_target, min=-100, max=100)
+            next_q_values = next_q_target.gather(1, next_actions).squeeze(1)
+            
             gamma_n = self.gamma ** self.n_step
             targets = rewards + (gamma_n * next_q_values * (1.0 - dones))
-        
-        # Clamp Q-values to prevent explosion
-        current_q = torch.clamp(current_q, min=-100, max=100)
-        targets = torch.clamp(targets, min=-100, max=100)
+            targets = torch.clamp(targets, min=-100, max=100)
         
         # Compute loss with importance sampling weights
         td_errors = current_q - targets
