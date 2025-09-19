@@ -521,6 +521,9 @@ def train_cnn_agent():
                   f"vs Rand: {vs_random:.1%} | ε: {agent.epsilon:.3f} | "
                   f"Spatial: {spatial_score:.2f}")
             
+            # Log evaluation episode with win rate for plotting
+            monitor.log_episode(episode_num, avg_reward, agent, win_rate=current_win_rate, strategic_score=spatial_score)
+            
             # Generate plots
             if episode_num % 2000 == 0:
                 monitor.generate_training_report(agent, episode_num)

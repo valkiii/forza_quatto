@@ -713,7 +713,7 @@ class TrainingMonitor:
             
             # Plot 2: Win rate and exploration
             ax2 = fig.add_subplot(gs[0, 1])
-            if self.win_rates and self.exploration_rates and len(self.win_rates) > 0 and len(self.exploration_rates) > 0:
+            if (self.win_rates and len(self.win_rates) > 0) or (self.exploration_rates and len(self.exploration_rates) > 0):
                 try:
                     ax2b = ax2.twinx()
                     
@@ -725,30 +725,33 @@ class TrainingMonitor:
                     # Exploration rates are recorded every episode, so use 1:1 scale
                     epsilon_episodes = np.arange(1, len(self.exploration_rates) + 1)
                     
-                    # Plot win rates on correct episode scale
-                    ax2.plot(win_rate_episodes, self.win_rates, 'b-', label='Win Rate', linewidth=2)
-                    ax2.set_ylabel('Win Rate', color='b')
-                    ax2.tick_params(axis='y', labelcolor='b')
+                    # Plot win rates if available
+                    if self.win_rates and len(self.win_rates) > 0:
+                        ax2.plot(win_rate_episodes, self.win_rates, 'b-', label='Win Rate', linewidth=2)
+                        ax2.set_ylabel('Win Rate', color='b')
+                        ax2.tick_params(axis='y', labelcolor='b')
+                        ax2.legend(loc='upper left')
                     
-                    # Plot exploration rates on correct episode scale  
-                    ax2b.plot(epsilon_episodes, self.exploration_rates, 'r-', alpha=0.7, label='Epsilon', linewidth=1)
-                    ax2b.set_ylabel('Epsilon', color='r')
-                    ax2b.tick_params(axis='y', labelcolor='r')
+                    # Plot exploration rates if available
+                    if self.exploration_rates and len(self.exploration_rates) > 0:
+                        ax2b.plot(epsilon_episodes, self.exploration_rates, 'r-', alpha=0.7, label='Epsilon', linewidth=1)
+                        ax2b.set_ylabel('Epsilon', color='r')
+                        ax2b.tick_params(axis='y', labelcolor='r')
+                        ax2b.legend(loc='upper right')
                     
                     # Set consistent x-axis limits
-                    max_episode = max(win_rate_episodes[-1] if win_rate_episodes.size > 0 else 0,
-                                    epsilon_episodes[-1] if epsilon_episodes.size > 0 else 0)
+                    max_episode = 0
+                    if self.win_rates and len(self.win_rates) > 0:
+                        max_episode = max(max_episode, win_rate_episodes[-1])
+                    if self.exploration_rates and len(self.exploration_rates) > 0:
+                        max_episode = max(max_episode, epsilon_episodes[-1])
                     if max_episode > 0:
                         ax2.set_xlim(0, max_episode)
                         ax2b.set_xlim(0, max_episode)
                     
                     ax2.set_xlabel('Episode')
-                    ax2.set_title('Win Rate vs Exploration (Fixed Scale)')
+                    ax2.set_title('Win Rate vs Exploration')
                     ax2.grid(True, alpha=0.3)
-                    
-                    # Add legend
-                    ax2.legend(loc='upper left')
-                    ax2b.legend(loc='upper right')
                     
                 except Exception as e:
                     print(f"Warning: Could not plot win rate vs exploration: {e}")
