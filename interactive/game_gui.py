@@ -18,6 +18,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from game.board import Connect4Board
 from agents.double_dqn_agent import DoubleDQNAgent
+from agents.enhanced_double_dqn_agent import EnhancedDoubleDQNAgent
 from train_fixed_double_dqn import FixedDoubleDQNAgent
 
 
@@ -143,22 +144,35 @@ class Connect4GUI:
         print("Using enhanced visual fallback")
         
     def load_ai_agent(self, model_path: str) -> None:
-        """Load the trained Double DQN agent with correct configuration."""
+        """Load the trained agent with automatic type detection."""
         try:
-            # Use FixedDoubleDQNAgent with exact training configuration
-            self.ai_agent = FixedDoubleDQNAgent(
-                player_id=self.ai_player,
-                state_size=84,  # 2 channels * 6 rows * 7 cols
-                action_size=7,
-                seed=42,
-                # CRITICAL: Match exact training configuration
-                gradient_clip_norm=1.0,
-                use_huber_loss=True,
-                huber_delta=1.0,
-                state_normalization=True  # This was missing!
-            )
-            self.ai_agent.load(model_path, keep_player_id=False)  # Preserve our player_id=2
-            self.ai_agent.epsilon = 0.1  # No exploration during gameplay
+            # Auto-detect model type based on path
+            if "enhanced" in model_path.lower():
+                # Use EnhancedDoubleDQNAgent for enhanced models
+                self.ai_agent = EnhancedDoubleDQNAgent(
+                    player_id=self.ai_player,
+                    state_size=92,  # Enhanced state with strategic features
+                    action_size=7,
+                    hidden_size=512,  # Enhanced network size
+                    seed=42
+                )
+                self.ai_agent.load(model_path, keep_player_id=False)
+                self.ai_agent.epsilon = 0.0  # No exploration during gameplay
+            else:
+                # Use FixedDoubleDQNAgent for legacy models
+                self.ai_agent = FixedDoubleDQNAgent(
+                    player_id=self.ai_player,
+                    state_size=84,  # 2 channels * 6 rows * 7 cols
+                    action_size=7,
+                    seed=42,
+                    # CRITICAL: Match exact training configuration
+                    gradient_clip_norm=1.0,
+                    use_huber_loss=True,
+                    huber_delta=1.0,
+                    state_normalization=True  # This was missing!
+                )
+                self.ai_agent.load(model_path, keep_player_id=False)  # Preserve our player_id=2
+                self.ai_agent.epsilon = 0.1  # No exploration during gameplay
             self.status_label.config(
                 text=f"✅ AI Agent loaded from {os.path.basename(model_path)}",
                 fg='#27ae60'

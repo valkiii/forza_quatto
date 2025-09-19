@@ -25,6 +25,9 @@ class DuelingNetwork(nn.Module):
     def __init__(self, state_size: int, action_size: int, hidden_size: int = 512):
         super().__init__()
         
+        # Store action_size for initialization
+        self.action_size = action_size
+        
         # Deeper feature extraction with 3 layers
         self.feature = nn.Sequential(
             nn.Linear(state_size, hidden_size),
@@ -53,13 +56,22 @@ class DuelingNetwork(nn.Module):
         self._initialize_weights()
     
     def _initialize_weights(self):
-        """Initialize network weights for stability."""
+        """Initialize with stronger optimistic bias to overcome pessimistic attractor."""
         for m in self.modules():
             if isinstance(m, nn.Linear):
+                # Keep Xavier for weights (stable) but scale down final weights slightly
                 nn.init.xavier_uniform_(m.weight)
                 if m.bias is not None:
-                    nn.init.constant_(m.bias, 0)
-    
+                    # If this is the final output of the value head (out_features == 1)
+                    # or the advantage head (out_features == action_size), set a positive bias.
+                    if m.out_features == 1 or m.out_features == self.action_size:
+                        # Strong optimistic initialization for outputs
+                        nn.init.constant_(m.bias, 10.0)
+                    else:
+                        # Small positive bias in hidden layers so activations start slightly optimistic
+                        nn.init.constant_(m.bias, 0.0)
+
+
     def forward(self, x):
         """Forward pass through dueling network."""
         features = self.feature(x)
@@ -192,6 +204,7 @@ class EnhancedDoubleDQNAgent(BaseAgent):
         
         # Training tracking
         self.train_step_count = 0
+        self._episode_count = 0  # Track episodes for optimism bootstrap
         self.beta_scheduler = lambda step: min(1.0, 0.4 + 0.6 * step / 100000)
         
         # Random number generator
@@ -553,6 +566,10 @@ class EnhancedDoubleDQNAgent(BaseAgent):
             gamma_n = self.gamma ** self.n_step
             targets = rewards + (gamma_n * next_q_values * (1.0 - dones))
             targets = torch.clamp(targets, min=-100, max=100)
+        
+            # ✅ Optimism protection during bootstrap phase only
+            if hasattr(self, "_episode_count") and self._episode_count < 2000:
+                targets = torch.clamp(targets, min=0.0)
         
         # Compute loss with importance sampling weights
         td_errors = current_q - targets

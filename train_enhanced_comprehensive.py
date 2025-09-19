@@ -30,13 +30,13 @@ def create_enhanced_config() -> Dict[str, Any]:
         "use_dueling_network": True,
         "state_size": 92,  # Base 84 + 8 strategic features
         
-        # Learning Parameters (Improved)
-        "learning_rate": 5e-5,  # Ultra-conservative for stability
-        "discount_factor": 0.95,  # MUST be 0.95, not 0.99
+        # Learning Parameters (Ultra-conservative to avoid overshooting optimistic initialization)
+        "learning_rate": 5e-5,  # Reduced back to conservative rate
+        "discount_factor": 0.9,  # Reduced from 0.95 for less future bias
         "gradient_clip_norm": 1.0,  # Prevent gradient explosion
         "epsilon_start": 1.0,
-        "epsilon_end": 0.01,  # Lowered from 0.05 for less exploration
-        "epsilon_decay": 0.9998,
+        "epsilon_end": 0.05,  # Increased from 0.01 for more exploration
+        "epsilon_decay": 0.99995,  # Slower decay from 0.9998
         
         # Buffer and Training (Improved)
         "batch_size": 256,  # Increased from 128 for better gradients
@@ -58,11 +58,13 @@ def create_enhanced_config() -> Dict[str, Any]:
         "save_frequency": 2000,
         "random_seed": 42,
         
-        # Curriculum Learning (Improved)
-        "random_phase_end": 50000,  # Reduced random phase
+        # Curriculum Learning (with optimism bootstrap to prevent Q-collapse)
+        "optimism_bootstrap_end": 2000,  # CRITICAL: Only positive rewards early
+        "warmup_phase_end": 20000,   # Extended warmup vs random only
+        "random_phase_end": 50000,   # Reduced random phase
         "heuristic_phase_end": 200000,  # Extended heuristic phase
         "self_play_start_early": 50000,  # Start self-play earlier
-        "self_play_ratio": 0.7,  # 70% self-play in final phase
+        "self_play_ratio": 0.7,     # 70% self-play in final phase
         "heuristic_preservation_rate": 0.2,  # Always 20% heuristic
         "random_diversity_rate": 0.1,  # 10% random for diversity
         
@@ -71,16 +73,16 @@ def create_enhanced_config() -> Dict[str, Any]:
         "mcts_simulations": 50,  # MCTS for smarter play (optional)
         "use_mcts_evaluation": False,  # Enable MCTS during play
         
-        # Reward System (Scaled down for stability)
-        "reward_system": "enhanced",
+        # Reward System (Scaled to match Q-value range [-100, 100])
+        "reward_system": "enhanced", 
         "reward_config": {
-            "win_reward": 1.0,     # Reduced from 10.0
-            "loss_penalty": -1.0,   # Reduced from -10.0  
-            "draw_reward": 0.1,     # Reduced from 1.0
-            "threat_reward": 0.3,   # Reduced from 3.0
-            "block_reward": 0.2,    # Reduced from 2.0
-            "center_bonus": 0.05,   # Reduced from 0.5
-            "height_penalty": -0.01 # Reduced from -0.1
+            "win_reward": 20.0,     # Strong signal: max Q ≈ 20/(1-0.9) = 200 → clamped to 100
+            "loss_penalty": -20.0,  # Symmetric negative signal
+            "draw_reward": 10.0,    # Positive but less than win
+            "threat_reward": 2.0,   # Meaningful strategic bonus
+            "block_reward": 2.0,    # Meaningful defensive bonus  
+            "center_bonus": 0.5,    # Small but visible center bias
+            "height_penalty": -0.1  # Small penalty for bad positioning
         },
         
         # Monitoring and Stopping
@@ -210,7 +212,7 @@ def setup_enhanced_logging(log_dir: str) -> str:
 
 
 def play_enhanced_training_game(agent: EnhancedDoubleDQNAgent, opponent, 
-                              reward_config: dict = None) -> Tuple[Optional[int], int, dict]:
+                              reward_config: dict = None, full_config: dict = None) -> Tuple[Optional[int], int, dict]:
     """Play enhanced training game with detailed statistics."""
     board = Connect4Board()
     
@@ -245,9 +247,21 @@ def play_enhanced_training_game(agent: EnhancedDoubleDQNAgent, opponent,
         if current_player == agent:
             agent_moves.append({'state': state_before.copy(), 'action': action, 'move_num': move_count})
             
-            # Analyze strategic value
+            # Calculate immediate reward shaping to guide learning
+            immediate_reward_bonus = 0.0
+            
+            # Center play bonus (scaled up)
             if action in [2, 3, 4]:  # Center columns
                 strategic_stats['center_moves'] += 1
+                immediate_reward_bonus += 1.0  # Immediate positive feedback
+            
+            # Height bonus (prefer lower rows for stability)
+            # Find which row the piece landed in
+            for row in range(board.board.shape[0] - 1, -1, -1):
+                if board.board[row, action] != 0:  # Found the placed piece
+                    if row >= 3:  # Bottom half of board
+                        immediate_reward_bonus += 0.5
+                    break
             
             # Check for immediate winning move
             temp_board = Connect4Board()
@@ -256,6 +270,7 @@ def play_enhanced_training_game(agent: EnhancedDoubleDQNAgent, opponent,
             
             if temp_board.check_winner() == agent.player_id:
                 strategic_stats['threats_created'] += 1
+                immediate_reward_bonus += 5.0  # Strong immediate reward for winning
             
             # Check for blocking opponent's winning move
             opponent_id = 3 - agent.player_id
@@ -265,6 +280,10 @@ def play_enhanced_training_game(agent: EnhancedDoubleDQNAgent, opponent,
             
             if temp_board_opp.check_winner() == opponent_id:
                 strategic_stats['threats_blocked'] += 1
+                immediate_reward_bonus += 3.0  # Strong reward for blocking
+            
+            # Store immediate reward bonus for later use
+            agent_moves[-1]['immediate_bonus'] = immediate_reward_bonus
         
         # Make move
         board.make_move(action, current_player.player_id)
@@ -285,29 +304,38 @@ def play_enhanced_training_game(agent: EnhancedDoubleDQNAgent, opponent,
                     agent.player_id, board.is_terminal(), reward_config
                 )
             else:
-                # Strategic reward even without full config
-                reward = 0.0  # Base reward
+                # Optimism bootstrap: Only positive rewards early to prevent Q-collapse
+                reward = 1.0  # Meaningful positive baseline
                 
                 if board.is_terminal():
                     winner = board.check_winner()
                     if winner == agent.player_id:
-                        reward = 1.0  # Scaled down from 10.0
+                        reward = 40.0  # Extra strong positive during bootstrap
                     elif winner is not None:
-                        reward = -1.0  # Scaled down from -10.0
+                        # CRITICAL: Check if in bootstrap phase
+                        bootstrap_end = full_config.get('optimism_bootstrap_end', 2000) if full_config else 2000
+                        if hasattr(agent, '_episode_count') and agent._episode_count < bootstrap_end:
+                            reward = 0.0  # NO NEGATIVE during bootstrap phase
+                        else:
+                            reward = -20.0  # Normal negative after bootstrap
                     else:
-                        reward = 0.1  # Scaled down from 1.0
+                        reward = 20.0  # Good draw reward during bootstrap
                 else:
-                    # Add small strategic rewards for good moves
+                    # Add immediate reward shaping bonus stored earlier
+                    immediate_bonus = prev_exp.get('immediate_bonus', 0.0)
+                    reward += immediate_bonus
+                    
+                    # Legacy strategic rewards (backup)
                     action = prev_exp['action']
                     if action in [2, 3, 4]:  # Center columns
-                        reward += 0.01  # Scaled down from 0.1
+                        reward += 0.5  # Visible center bonus
                     
                     # Check if move blocks opponent threat
                     temp_board = Connect4Board()
                     temp_board.board = prev_exp['state'].copy()
                     temp_board.make_move(action, 3 - agent.player_id)  # Opponent move
                     if temp_board.check_winner() == (3 - agent.player_id):
-                        reward += 0.05  # Scaled down from 0.5
+                        reward += 2.0  # Meaningful blocking reward
             
             # Store experience
             next_state = None if board.is_terminal() else board.get_state().copy()
@@ -334,18 +362,26 @@ def play_enhanced_training_game(agent: EnhancedDoubleDQNAgent, opponent,
                 agent.player_id, True, reward_config
             )
         else:
-            # Strategic final reward even without full config
+            # Bootstrap-protected final rewards
+            bootstrap_end = full_config.get('optimism_bootstrap_end', 2000) if full_config else 2000
             if winner == agent.player_id:
-                final_reward = 1.0  # Scaled down from 10.0
+                final_reward = 40.0  # Extra strong positive during bootstrap
             elif winner is not None:
-                final_reward = -1.0  # Scaled down from -10.0
+                if hasattr(agent, '_episode_count') and agent._episode_count < bootstrap_end:
+                    final_reward = 0.0  # NO NEGATIVE during bootstrap phase
+                else:
+                    final_reward = -20.0  # Normal negative after bootstrap
             else:
-                final_reward = 0.1  # Scaled down from 1.0
+                final_reward = 20.0  # Good draw reward during bootstrap
+            
+            # Add immediate shaping bonus for final move  
+            immediate_bonus = final_exp.get('immediate_bonus', 0.0)
+            final_reward += immediate_bonus
             
             # Add strategic bonus for final move
             action = final_exp['action']
             if action in [2, 3, 4]:  # Center columns
-                final_reward += 0.01  # Scaled down from 0.1
+                final_reward += 0.5  # Visible center bonus
         
         agent.observe(final_exp['state'], final_exp['action'], final_reward, None, True)
     
@@ -522,13 +558,16 @@ def train_enhanced_agent():
     best_win_rate = 0.0
     early_stopping_counter = 0
     
-    # Curriculum phases
+    # Curriculum phases (including warmup)
+    WARMUP_PHASE_END = config["warmup_phase_end"]
     RANDOM_PHASE_END = config["random_phase_end"]
     HEURISTIC_PHASE_END = config["heuristic_phase_end"] 
     SELF_PLAY_START = config["self_play_start_early"]
     
-    print(f"\\n🎯 ENHANCED CURRICULUM SCHEDULE:")
-    print(f"  Episodes 1-{RANDOM_PHASE_END:,}: vs Random (foundation)")
+    print(f"\\n🎯 ENHANCED CURRICULUM SCHEDULE (OPTIMISM BOOTSTRAP):")
+    print(f"  Episodes 1-{config['optimism_bootstrap_end']:,}: 🛡️  BOOTSTRAP (NO NEGATIVE REWARDS)")
+    print(f"  Episodes {config['optimism_bootstrap_end'] + 1:,}-{WARMUP_PHASE_END:,}: vs Random (optimistic warmup)")
+    print(f"  Episodes {WARMUP_PHASE_END + 1:,}-{RANDOM_PHASE_END:,}: vs Random (foundation)")
     print(f"  Episodes {RANDOM_PHASE_END + 1:,}-{HEURISTIC_PHASE_END:,}: vs Heuristic (strategy)")
     print(f"  Episodes {SELF_PLAY_START:,}+: Mixed training:")
     print(f"    - {config['self_play_ratio']:.0%} Self-play (skill development)")
@@ -540,8 +579,10 @@ def train_enhanced_agent():
     print()
     
     def get_current_opponent(episode):
-        """Enhanced opponent selection with early self-play."""
-        if episode <= RANDOM_PHASE_END:
+        """Enhanced opponent selection with optimistic warmup phase."""
+        if episode <= WARMUP_PHASE_END:
+            return random_opponent, "Random-Warmup"  # Extended warmup for optimism
+        elif episode <= RANDOM_PHASE_END:
             return random_opponent, "Random"
         elif episode <= SELF_PLAY_START:
             return heuristic_opponent, "Heuristic"
@@ -578,21 +619,29 @@ def train_enhanced_agent():
             # Update monitor's opponent tracking
             monitor.set_current_opponent(opponent_name)
         
-        # Reset episode
+        # Reset episode and track count for bootstrap
+        agent._episode_count = episode_num  # Update episode count for bootstrap check
         agent.reset_episode()
         
-        # Play training game
+        # Disable reward_config during bootstrap phase to activate optimism bootstrap
+        reward_config_to_use = None if episode_num < config["optimism_bootstrap_end"] else config["reward_config"]
+
+
+        # Play training game with bootstrap protection
         winner, game_length, strategic_stats = play_enhanced_training_game(
-            agent, current_opponent, config["reward_config"]
+            agent, current_opponent, reward_config_to_use, config
         )
         
-        # Calculate episode reward (scaled down for stability)
+        # Calculate episode reward with bootstrap protection
         if winner == agent.player_id:
-            episode_reward = 1.0  # Scaled down from 10.0
+            episode_reward = 40.0  # Extra strong positive during bootstrap
         elif winner is not None:
-            episode_reward = -1.0  # Scaled down from -10.0
+            if episode_num < config["optimism_bootstrap_end"]:
+                episode_reward = 0.0  # NO NEGATIVE during bootstrap phase
+            else:
+                episode_reward = -20.0  # Normal negative after bootstrap
         else:
-            episode_reward = 0.1  # Scaled down from 1.0
+            episode_reward = 20.0  # Good draw reward during bootstrap
         
         episode_rewards.append(episode_reward)
         

@@ -18,14 +18,25 @@ def main():
     try:
         from interactive.game_gui import Connect4GUI
         
-        # Look for the best available model (prioritize trained models)
+        # Look for the best available model (prioritize enhanced models)
         model_candidates = [
-            "models_fixed/double_dqn_ep_150000.pt"
+            "models_enhanced/enhanced_dqn_final.pt",
+            "models_enhanced/enhanced_dqn_best_ep_*.pt",
+            "models_enhanced/enhanced_dqn_ep_*.pt"
         ]
         
         model_path = None
+        import glob
+        
         for candidate in model_candidates:
-            if os.path.exists(candidate):
+            if "*" in candidate:
+                # Handle glob patterns for models with episode numbers
+                matching_files = glob.glob(candidate)
+                if matching_files:
+                    # Sort by modification time, get the newest
+                    model_path = max(matching_files, key=os.path.getmtime)
+                    break
+            elif os.path.exists(candidate):
                 model_path = candidate
                 break
         
