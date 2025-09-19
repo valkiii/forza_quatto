@@ -25,9 +25,9 @@ from train.training_monitor import TrainingMonitor
 def create_cnn_config() -> Dict[str, Any]:
     """Create configuration optimized for CNN Dueling DQN."""
     return {
-        # CNN-specific parameters
+        # CNN-specific parameters (optimized for M1 GPU)
         "input_channels": 2,  # Player and opponent channels
-        "hidden_size": 256,   # Reduced for CNN (conv layers do heavy lifting)
+        "hidden_size": 512,   # Larger network for M1 GPU acceleration
         
         # Learning parameters (CNN-optimized)
         "learning_rate": 1e-4,  # Lower LR for CNN stability
@@ -38,9 +38,9 @@ def create_cnn_config() -> Dict[str, Any]:
         "epsilon_end": 0.01,
         "epsilon_decay": 0.99999001,  # Much slower decay for 500k episodes (ε=0.05 at 300k)
         
-        # Training parameters
-        "batch_size": 128,      # Smaller batch for CNN memory efficiency
-        "buffer_size": 100000,  # Moderate buffer size
+        # Training parameters (optimized for M1 GPU)
+        "batch_size": 256,      # Larger batch for M1 GPU efficiency
+        "buffer_size": 150000,  # Larger buffer for M1 memory
         "min_buffer_size": 1000,
         "target_update_freq": 1000,  # More frequent updates for CNN
         
@@ -327,13 +327,22 @@ def train_cnn_agent():
     print(f"  6. ✅ Spatial scoring: Center preference analysis")
     print()
     
-    # Set seeds
+    # Set seeds for reproducibility
     random.seed(config["random_seed"])
     np.random.seed(config["random_seed"])
     torch.manual_seed(config["random_seed"])
     if torch.cuda.is_available():
         torch.cuda.manual_seed(config["random_seed"])
+    if torch.backends.mps.is_available():
+        torch.mps.manual_seed(config["random_seed"])
     print(f"🎲 Seeds set to {config['random_seed']}")
+    
+    # M1 GPU optimizations
+    if torch.backends.mps.is_available():
+        print("🚀 M1 GPU acceleration enabled")
+        # Enable optimized memory format for M1
+        torch.backends.mps.allow_tf32 = True
+        print("   ✅ MPS optimizations enabled")
     
     # Setup logging
     log_file = setup_cnn_logging("logs_cnn")

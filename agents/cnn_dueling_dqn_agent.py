@@ -57,16 +57,16 @@ class CNNDuelingNetwork(nn.Module):
             nn.BatchNorm2d(32)
         )
         
-        # Final feature combination
+        # Final feature combination (MPS-compatible)
         self.final_conv = nn.Sequential(
             nn.Conv2d(160, 128, kernel_size=3, padding=1),  # 160 total input channels, 128 output
             nn.ReLU(),
             nn.BatchNorm2d(128),
-            nn.AdaptiveAvgPool2d((3, 4))  # Normalize to consistent size
+            nn.AvgPool2d(kernel_size=2, stride=2)  # MPS-compatible pooling: 6x7 -> 3x3
         )
         
-        # Calculate conv output size after adaptive pooling: 128 * 3 * 4 = 1536
-        self.conv_output_size = 128 * 3 * 4
+        # Calculate conv output size after pooling: 128 * 3 * 3 = 1152
+        self.conv_output_size = 128 * 3 * 3
         
         # Shared feature processing
         self.feature_fc = nn.Sequential(
@@ -191,8 +191,13 @@ class CNNDuelingDQNAgent(BaseAgent):
         self.epsilon_end = epsilon_end
         self.epsilon_decay = epsilon_decay
         
-        # Device
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        # Device - prioritize M1 GPU (MPS) for CNN acceleration
+        if torch.backends.mps.is_available():
+            self.device = torch.device("mps")
+        elif torch.cuda.is_available():
+            self.device = torch.device("cuda")
+        else:
+            self.device = torch.device("cpu")
         
         # Networks
         self.online_net = CNNDuelingNetwork(input_channels, action_size, hidden_size).to(self.device)
