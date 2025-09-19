@@ -30,64 +30,50 @@ class CNNDuelingNetwork(nn.Module):
         # CNN feature extraction for Connect4-specific patterns
         # Input: 2 channels (player, opponent) x 6 rows x 7 cols
         
-        # Basic pattern detection
+        # Ultra-lightweight pattern detection (~10k parameters total)
         self.basic_conv = nn.Sequential(
-            nn.Conv2d(input_channels, 32, kernel_size=3, padding=1),  # 32 x 6 x 7
+            nn.Conv2d(input_channels, 8, kernel_size=3, padding=1),  # 8 x 6 x 7
             nn.ReLU(),
-            nn.BatchNorm2d(32),
-            nn.Conv2d(32, 64, kernel_size=3, padding=1),  # 64 x 6 x 7
-            nn.ReLU(),
-            nn.BatchNorm2d(64)
-        )
-        
-        # Connect4-specific pattern detectors
-        # Vertical 4-in-a-row detection (critical for Connect4)
-        self.vertical_conv = nn.Conv2d(64, 16, kernel_size=(4, 1), padding=0)  # 16 x 3 x 7
-        
-        # Horizontal 4-in-a-row detection
-        self.horizontal_conv = nn.Conv2d(64, 16, kernel_size=(1, 4), padding=0)  # 16 x 6 x 4
-        
-        # Diagonal pattern detection (4x4 for diagonal threats)
-        self.diagonal_conv = nn.Conv2d(64, 32, kernel_size=4, padding=0)  # 32 x 3 x 4
-        
-        # Column dependencies for drop mechanics
-        self.column_conv = nn.Sequential(
-            nn.Conv2d(64, 32, kernel_size=(1, 3), padding=(0, 1)),  # 32 x 6 x 7
-            nn.ReLU(),
-            nn.BatchNorm2d(32)
-        )
-        
-        # Final feature combination (MPS-compatible)
-        self.final_conv = nn.Sequential(
-            nn.Conv2d(160, 128, kernel_size=3, padding=1),  # 160 total input channels, 128 output
-            nn.ReLU(),
-            nn.BatchNorm2d(128),
-            nn.AvgPool2d(kernel_size=2, stride=2)  # MPS-compatible pooling: 6x7 -> 3x3
-        )
-        
-        # Calculate conv output size after pooling: 128 * 3 * 3 = 1152
-        self.conv_output_size = 128 * 3 * 3
-        
-        # Shared feature processing
-        self.feature_fc = nn.Sequential(
-            nn.Linear(self.conv_output_size, hidden_size),
-            nn.ReLU(),
-            nn.Dropout(0.2),
-            nn.Linear(hidden_size, hidden_size),
+            nn.Conv2d(8, 16, kernel_size=3, padding=1),  # 16 x 6 x 7
             nn.ReLU()
         )
         
-        # Dueling heads
-        self.value_head = nn.Sequential(
-            nn.Linear(hidden_size, 128),
+        # Connect4-specific pattern detectors (minimal but focused)
+        # Vertical 4-in-a-row detection
+        self.vertical_conv = nn.Conv2d(16, 4, kernel_size=(4, 1), padding=0)  # 4 x 3 x 7
+        
+        # Horizontal 4-in-a-row detection  
+        self.horizontal_conv = nn.Conv2d(16, 4, kernel_size=(1, 4), padding=0)  # 4 x 6 x 4
+        
+        # Diagonal pattern detection (minimal channels)
+        self.diagonal_conv = nn.Conv2d(16, 8, kernel_size=4, padding=0)  # 8 x 3 x 4
+        
+        # Simple global pooling to reduce dimensions dramatically
+        self.global_pool = nn.AdaptiveAvgPool2d(1)  # Reduce to 1x1 per channel
+        
+        # Calculate total channels after pattern detection: 16 + 4 + 4 + 8 = 32
+        # After global pooling: 32 * 1 * 1 = 32 features
+        self.conv_output_size = 32
+        
+        # Ultra-lightweight shared feature processing
+        self.feature_fc = nn.Sequential(
+            nn.Linear(self.conv_output_size, 32),  # 32 -> 32 features
             nn.ReLU(),
-            nn.Linear(128, 1)
+            nn.Linear(32, 16),  # Compress to 16 features  
+            nn.ReLU()
+        )
+        
+        # Ultra-lightweight dueling heads
+        self.value_head = nn.Sequential(
+            nn.Linear(16, 8),
+            nn.ReLU(),
+            nn.Linear(8, 1)
         )
         
         self.advantage_head = nn.Sequential(
-            nn.Linear(hidden_size, 128),
-            nn.ReLU(),
-            nn.Linear(128, action_size)
+            nn.Linear(16, 8),
+            nn.ReLU(),  
+            nn.Linear(8, action_size)
         )
         
         # Initialize weights
@@ -113,42 +99,30 @@ class CNNDuelingNetwork(nn.Module):
                         nn.init.constant_(m.bias, 0)
     
     def forward(self, x):
-        """Forward pass through Connect4-specialized CNN dueling network."""
+        """Forward pass through lightweight Connect4 CNN dueling network."""
         # x shape: (batch_size, 2, 6, 7)
         
         # Basic pattern extraction
-        basic_features = self.basic_conv(x)  # (batch_size, 64, 6, 7)
+        basic_features = self.basic_conv(x)  # (batch_size, 16, 6, 7)
         
         # Connect4-specific pattern detection
-        vertical_features = self.vertical_conv(basic_features)  # (batch_size, 16, 3, 7)
-        horizontal_features = self.horizontal_conv(basic_features)  # (batch_size, 16, 6, 4)
-        diagonal_features = self.diagonal_conv(basic_features)  # (batch_size, 32, 3, 4)
-        column_features = self.column_conv(basic_features)  # (batch_size, 32, 6, 7)
+        vertical_features = self.vertical_conv(basic_features)  # (batch_size, 4, 3, 7)
+        horizontal_features = self.horizontal_conv(basic_features)  # (batch_size, 4, 6, 4)  
+        diagonal_features = self.diagonal_conv(basic_features)  # (batch_size, 8, 3, 4)
         
-        # Pad features to match basic_features dimensions for concatenation
-        # Vertical: pad to 6x7
-        vertical_padded = F.pad(vertical_features, (0, 0, 3, 0))  # (batch_size, 16, 6, 7)
+        # Global pooling to get fixed-size features (much more efficient)
+        basic_pooled = self.global_pool(basic_features).squeeze(-1).squeeze(-1)  # (batch_size, 16)
+        vertical_pooled = self.global_pool(vertical_features).squeeze(-1).squeeze(-1)  # (batch_size, 4)
+        horizontal_pooled = self.global_pool(horizontal_features).squeeze(-1).squeeze(-1)  # (batch_size, 4)
+        diagonal_pooled = self.global_pool(diagonal_features).squeeze(-1).squeeze(-1)  # (batch_size, 8)
         
-        # Horizontal: pad to 6x7  
-        horizontal_padded = F.pad(horizontal_features, (3, 0, 0, 0))  # (batch_size, 16, 6, 7)
-        
-        # Diagonal: pad to 6x7
-        diagonal_padded = F.pad(diagonal_features, (3, 0, 3, 0))  # (batch_size, 32, 6, 7)
-        
-        # Concatenate all features along channel dimension
-        all_features = torch.cat([
-            basic_features,      # 64 channels
-            vertical_padded,     # 16 channels  
-            horizontal_padded,   # 16 channels
-            diagonal_padded,     # 32 channels
-            column_features      # 32 channels
-        ], dim=1)  # Total: 160 channels
-        
-        # Final processing with corrected input channels
-        final_features = self.final_conv(all_features)  # (batch_size, 128, 3, 4)
-        
-        # Flatten for fully connected layers
-        conv_flat = final_features.view(final_features.size(0), -1)  # (batch_size, 1536)
+        # Concatenate all pooled features
+        conv_flat = torch.cat([
+            basic_pooled,      # 16 features
+            vertical_pooled,   # 4 features
+            horizontal_pooled, # 4 features  
+            diagonal_pooled    # 8 features
+        ], dim=1)  # Total: 32 features
         
         # Shared feature processing
         features = self.feature_fc(conv_flat)  # (batch_size, hidden_size)
