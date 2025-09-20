@@ -22,11 +22,23 @@ Experience = namedtuple('Experience', ['state', 'action', 'reward', 'next_state'
 class CNNDuelingNetwork(nn.Module):
     """CNN-based Dueling network that processes board as spatial 2D data."""
     
-    def __init__(self, input_channels: int = 2, action_size: int = 7, hidden_size: int = 256):
+    def __init__(self, input_channels: int = 2, action_size: int = 7, hidden_size: int = 256, architecture: str = "ultra_light"):
         super().__init__()
         
+        # CRITICAL: Store action_size FIRST before any initialization
         self.action_size = action_size
+        self.architecture = architecture
         
+        if architecture == "m1_optimized":
+            self._build_m1_optimized(input_channels, action_size)
+        else:
+            self._build_ultra_light(input_channels, action_size)
+        
+        # Initialize weights (now self.action_size is available)
+        self._initialize_weights()
+    
+    def _build_ultra_light(self, input_channels: int, action_size: int):
+        """Build ultra-lightweight architecture (~5.8k parameters)."""
         # CNN feature extraction for Connect4-specific patterns
         # Input: 2 channels (player, opponent) x 6 rows x 7 cols
         
@@ -76,8 +88,40 @@ class CNNDuelingNetwork(nn.Module):
             nn.Linear(8, action_size)
         )
         
-        # Initialize weights
-        self._initialize_weights()
+    def _build_m1_optimized(self, input_channels: int, action_size: int):
+        """Build M1-optimized architecture (~80k parameters) - balances performance with capability."""
+        # M1 GPU handles 32-64 channels efficiently for this size target
+        self.conv_block = nn.Sequential(
+            # Layer 1: Basic feature detection (optimal for M1)
+            nn.Conv2d(input_channels, 32, kernel_size=3, padding=1),  # 32 x 6 x 7
+            nn.ReLU(),
+            nn.BatchNorm2d(32),  # M1's MPS backend handles BatchNorm efficiently
+            
+            # Layer 2: Pattern combination
+            nn.Conv2d(32, 64, kernel_size=3, padding=1),  # 64 x 6 x 7
+            nn.ReLU(),
+            nn.BatchNorm2d(64)
+        )
+        
+        # Spatial reduction (but not global!) - Keep columns, reduce rows
+        # This preserves critical Connect4 positional information
+        self.spatial_reduce = nn.Conv2d(64, 32, kernel_size=(3, 1), stride=(2, 1))  # Output: 32 x 2 x 7
+        
+        # Flatten: 32 * 2 * 7 = 448 features (preserves column structure)
+        self.conv_output_size = 448
+        
+        # Fully connected layers optimized for M1 (corrected input size)
+        self.feature_fc = nn.Sequential(
+            nn.Linear(448, 96),   # Corrected: 448 input features
+            nn.ReLU(),
+            nn.Dropout(0.1),  # Light dropout for generalization
+            nn.Linear(96, 48),    # Reduced from 64 to 48
+            nn.ReLU()
+        )
+        
+        # Dueling heads (adjusted for new feature size)
+        self.value_head = nn.Linear(48, 1)
+        self.advantage_head = nn.Linear(48, action_size)
     
     def _initialize_weights(self):
         """Initialize weights with optimistic bias for output layers."""
@@ -99,9 +143,16 @@ class CNNDuelingNetwork(nn.Module):
                         nn.init.constant_(m.bias, 0)
     
     def forward(self, x):
-        """Forward pass through lightweight Connect4 CNN dueling network."""
+        """Forward pass through Connect4 CNN dueling network."""
         # x shape: (batch_size, 2, 6, 7)
         
+        if self.architecture == "m1_optimized":
+            return self._forward_m1_optimized(x)
+        else:
+            return self._forward_ultra_light(x)
+    
+    def _forward_ultra_light(self, x):
+        """Forward pass through ultra-lightweight architecture."""
         # Basic pattern extraction
         basic_features = self.basic_conv(x)  # (batch_size, 16, 6, 7)
         
@@ -125,7 +176,30 @@ class CNNDuelingNetwork(nn.Module):
         ], dim=1)  # Total: 32 features
         
         # Shared feature processing
-        features = self.feature_fc(conv_flat)  # (batch_size, hidden_size)
+        features = self.feature_fc(conv_flat)  # (batch_size, 16)
+        
+        # Dueling heads
+        value = self.value_head(features)  # (batch_size, 1)
+        advantage = self.advantage_head(features)  # (batch_size, action_size)
+        
+        # Combine using dueling formula: Q(s,a) = V(s) + A(s,a) - mean(A(s,:))
+        q_values = value + advantage - advantage.mean(dim=1, keepdim=True)
+        
+        return q_values
+    
+    def _forward_m1_optimized(self, x):
+        """Forward pass through M1-optimized architecture."""
+        # Convolutional feature extraction
+        conv_features = self.conv_block(x)  # (batch_size, 64, 6, 7)
+        
+        # Spatial reduction - preserves critical Connect4 positional information
+        reduced_features = self.spatial_reduce(conv_features)  # (batch_size, 32, 2, 7)
+        
+        # Flatten while preserving column structure
+        conv_flat = reduced_features.view(-1, self.conv_output_size)  # (batch_size, 448)
+        
+        # Shared feature processing
+        features = self.feature_fc(conv_flat)  # (batch_size, 48)
         
         # Dueling heads
         value = self.value_head(features)  # (batch_size, 1)
@@ -144,13 +218,14 @@ class CNNDuelingDQNAgent(BaseAgent):
                  hidden_size: int = 256, gamma: float = 0.95, lr: float = 1e-4,
                  epsilon_start: float = 1.0, epsilon_end: float = 0.01, epsilon_decay: float = 0.99999001,
                  batch_size: int = 128, buffer_size: int = 100000, min_buffer_size: int = 1000,
-                 target_update_freq: int = 1000, seed: int = None):
+                 target_update_freq: int = 1000, architecture: str = "ultra_light", seed: int = None):
         """Initialize CNN Dueling DQN agent."""
         super().__init__(player_id, "CNN-Dueling-DQN")
         
         # Agent parameters
         self.input_channels = input_channels
         self.action_size = action_size
+        self.architecture = architecture
         
         # Hyperparameters
         self.gamma = gamma
@@ -173,9 +248,9 @@ class CNNDuelingDQNAgent(BaseAgent):
         else:
             self.device = torch.device("cpu")
         
-        # Networks
-        self.online_net = CNNDuelingNetwork(input_channels, action_size, hidden_size).to(self.device)
-        self.target_net = CNNDuelingNetwork(input_channels, action_size, hidden_size).to(self.device)
+        # Networks with architecture selection
+        self.online_net = CNNDuelingNetwork(input_channels, action_size, hidden_size, architecture).to(self.device)
+        self.target_net = CNNDuelingNetwork(input_channels, action_size, hidden_size, architecture).to(self.device)
         self.target_net.load_state_dict(self.online_net.state_dict())
         self.target_net.eval()
         

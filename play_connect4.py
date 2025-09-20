@@ -18,8 +18,14 @@ def main():
     try:
         from interactive.game_gui import Connect4GUI
         
-        # Look for the best available model (prioritize enhanced models)
+        # Look for the best available model (prioritize M1 CNN, then other CNNs, then enhanced)
         model_candidates = [
+            "models_m1_cnn/m1_cnn_dqn_final.pt",
+            "models_m1_cnn/m1_cnn_dqn_best_ep_*.pt",
+            "models_m1_cnn/m1_cnn_dqn_ep_*.pt",
+            "models_cnn/cnn_dqn_final.pt",
+            "models_cnn/cnn_dqn_best_ep_*.pt",
+            "models_cnn/cnn_dqn_ep_*.pt",
             "models_enhanced/enhanced_dqn_final.pt",
             "models_enhanced/enhanced_dqn_best_ep_*.pt",
             "models_enhanced/enhanced_dqn_ep_*.pt"

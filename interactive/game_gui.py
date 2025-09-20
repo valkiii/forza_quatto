@@ -19,6 +19,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from game.board import Connect4Board
 from agents.double_dqn_agent import DoubleDQNAgent
 from agents.enhanced_double_dqn_agent import EnhancedDoubleDQNAgent
+from agents.cnn_dueling_dqn_agent import CNNDuelingDQNAgent
 from train_fixed_double_dqn import FixedDoubleDQNAgent
 
 
@@ -147,7 +148,27 @@ class Connect4GUI:
         """Load the trained agent with automatic type detection."""
         try:
             # Auto-detect model type based on path
-            if "enhanced" in model_path.lower():
+            if "cnn" in model_path.lower():
+                # Auto-detect CNN architecture based on filename
+                if "m1" in model_path.lower():
+                    architecture = "m1_optimized"
+                    hidden_size = 48  # M1-optimized size
+                else:
+                    architecture = "ultra_light"
+                    hidden_size = 16  # Lightweight size
+                
+                # Use CNNDuelingDQNAgent for CNN models
+                self.ai_agent = CNNDuelingDQNAgent(
+                    player_id=self.ai_player,
+                    input_channels=2,  # Player and opponent channels
+                    action_size=7,
+                    hidden_size=hidden_size,
+                    architecture=architecture,
+                    seed=42
+                )
+                self.ai_agent.load(model_path, keep_player_id=False)
+                self.ai_agent.epsilon = 0.0  # No exploration during gameplay
+            elif "enhanced" in model_path.lower():
                 # Use EnhancedDoubleDQNAgent for enhanced models
                 self.ai_agent = EnhancedDoubleDQNAgent(
                     player_id=self.ai_player,
@@ -507,8 +528,8 @@ class Connect4GUI:
         """Open dialog to load AI model."""
         from tkinter import filedialog
         
-        # Check both new and old model directories
-        initial_dirs = ["models_fixed", "models", "."]
+        # Check M1 CNN, CNN, enhanced, and legacy model directories
+        initial_dirs = ["models_m1_cnn", "models_cnn", "models_enhanced", "models_fixed", "models", "."]
         initial_dir = "."
         
         # Use the first directory that exists and has .pt files
