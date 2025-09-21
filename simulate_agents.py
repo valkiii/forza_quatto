@@ -14,6 +14,8 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 from game.board import Connect4Board
 from agents.double_dqn_agent import DoubleDQNAgent
+from agents.enhanced_double_dqn_agent import EnhancedDoubleDQNAgent
+from agents.cnn_dueling_dqn_agent import CNNDuelingDQNAgent
 from train_fixed_double_dqn import FixedDoubleDQNAgent
 from agents.heuristic_agent import HeuristicAgent
 from agents.random_agent import RandomAgent
@@ -23,33 +25,127 @@ class GameSimulator:
     """Comprehensive game simulator for Connect 4 agents."""
     
     def __init__(self, rl_model_path: str):
-        """Initialize the simulator with trained RL agent."""
+        """Initialize the simulator with trained RL agent (auto-detects type)."""
         self.rl_agent = None
         self.rl_model_path = rl_model_path
+        self.agent_type = None
         
-        # Load RL agent
+        # Load RL agent with auto-detection
         if os.path.exists(rl_model_path):
             try:
-                # Use FixedDoubleDQNAgent with EXACT training configuration
-                self.rl_agent = FixedDoubleDQNAgent(
-                    player_id=1,  # Will be adjusted per game
-                    state_size=84,  # 2 channels * 6 rows * 7 cols
-                    action_size=7,
-                    seed=42,
-                    # CRITICAL: Match training configuration exactly
-                    gradient_clip_norm=1.0,
-                    use_huber_loss=True,
-                    huber_delta=1.0,
-                    state_normalization=True  # This was missing!
-                )
-                self.rl_agent.load(rl_model_path, keep_player_id=False)
-                self.rl_agent.epsilon = 0.0  # No exploration during evaluation
-                print(f"✅ RL Agent loaded from {os.path.basename(rl_model_path)}")
+                self.rl_agent = self._load_agent_auto_detect(rl_model_path)
+                if self.rl_agent:
+                    self.rl_agent.epsilon = 0.0  # No exploration during evaluation
+                    print(f"✅ {self.agent_type} RL Agent loaded from {os.path.basename(rl_model_path)}")
+                else:
+                    print(f"❌ Failed to load RL agent from {rl_model_path}")
             except Exception as e:
                 print(f"❌ Failed to load RL agent: {e}")
                 self.rl_agent = None
         else:
             print(f"❌ Model file not found: {rl_model_path}")
+    
+    def _load_agent_auto_detect(self, model_path: str):
+        """Auto-detect and load the appropriate agent type."""
+        # Determine agent type from file path
+        model_name = os.path.basename(model_path).lower()
+        
+        if "m1_cnn" in model_path.lower() or "cnn" in model_name:
+            # M1 CNN or CNN model
+            if "m1" in model_path.lower():
+                architecture = "m1_optimized"
+                hidden_size = 48
+                self.agent_type = "M1-Optimized CNN"
+            else:
+                architecture = "ultra_light"
+                hidden_size = 16
+                self.agent_type = "Ultra-Light CNN"
+                
+            agent = CNNDuelingDQNAgent(
+                player_id=1,  # Will be adjusted per game
+                input_channels=2,
+                action_size=7,
+                hidden_size=hidden_size,
+                architecture=architecture,
+                seed=42
+            )
+            agent.load(model_path, keep_player_id=False)
+            return agent
+            
+        elif "enhanced" in model_path.lower():
+            # Enhanced Double DQN model
+            self.agent_type = "Enhanced Double DQN"
+            agent = EnhancedDoubleDQNAgent(
+                player_id=1,
+                state_size=92,  # Enhanced state with strategic features
+                action_size=7,
+                hidden_size=512,
+                seed=42
+            )
+            agent.load(model_path, keep_player_id=False)
+            return agent
+            
+        else:
+            # Legacy Fixed Double DQN model
+            self.agent_type = "Fixed Double DQN"
+            agent = FixedDoubleDQNAgent(
+                player_id=1,
+                state_size=84,  # 2 channels * 6 rows * 7 cols
+                action_size=7,
+                seed=42,
+                # CRITICAL: Match training configuration exactly
+                gradient_clip_norm=1.0,
+                use_huber_loss=True,
+                huber_delta=1.0,
+                state_normalization=True
+            )
+            agent.load(model_path, keep_player_id=False)
+            return agent
+    
+    def _create_self_play_opponent(self):
+        """Create a copy of the main agent for self-play."""
+        if "M1-Optimized CNN" in self.agent_type:
+            opponent = CNNDuelingDQNAgent(
+                player_id=2,
+                input_channels=2,
+                action_size=7,
+                hidden_size=48,
+                architecture="m1_optimized",
+                seed=456
+            )
+        elif "Ultra-Light CNN" in self.agent_type:
+            opponent = CNNDuelingDQNAgent(
+                player_id=2,
+                input_channels=2,
+                action_size=7,
+                hidden_size=16,
+                architecture="ultra_light",
+                seed=456
+            )
+        elif "Enhanced Double DQN" in self.agent_type:
+            opponent = EnhancedDoubleDQNAgent(
+                player_id=2,
+                state_size=92,
+                action_size=7,
+                hidden_size=512,
+                seed=456
+            )
+        else:
+            # Fixed Double DQN
+            opponent = FixedDoubleDQNAgent(
+                player_id=2,
+                state_size=84,
+                action_size=7,
+                seed=456,
+                gradient_clip_norm=1.0,
+                use_huber_loss=True,
+                huber_delta=1.0,
+                state_normalization=True
+            )
+        
+        opponent.load(self.rl_model_path, keep_player_id=False)
+        opponent.epsilon = 0.0
+        return opponent
     
     def simulate_game(self, agent1, agent2) -> Tuple[Optional[int], int, List[int]]:
         """
@@ -106,19 +202,9 @@ class GameSimulator:
             opponent = HeuristicAgent(player_id=2, seed=123)
         elif opponent_type == 'self':
             # Create a copy of the RL agent as opponent with same config
-            opponent = FixedDoubleDQNAgent(
-                player_id=2,
-                state_size=84,
-                action_size=7,
-                seed=456,
-                # Match training configuration for self-play
-                gradient_clip_norm=1.0,
-                use_huber_loss=True,
-                huber_delta=1.0,
-                state_normalization=True
-            )
-            opponent.load(self.rl_model_path, keep_player_id=False)
-            opponent.epsilon = 0.0
+            opponent = self._create_self_play_opponent()
+            if opponent is None:
+                raise ValueError("Failed to create self-play opponent")
         else:
             raise ValueError(f"Invalid opponent type: {opponent_type}")
         
@@ -355,20 +441,41 @@ class GameSimulator:
 
 
 def find_best_model() -> Optional[str]:
-    """Find the best available trained model."""
+    """Find the best available trained model with priority order."""
+    import glob
+    
+    # Priority order: M1 CNN → Ultra-light CNN → Enhanced → Fixed Legacy
     model_candidates = [
-        "models_fixed/double_dqn_ep_150000.pt",  # Best post-heuristic model
-        # "models/double_dqn_final.pt",      # Final model
+        # M1-Optimized CNN models (highest priority)
+        "models_m1_cnn/m1_cnn_dqn_ep_518000.pt",
+        # "models_m1_cnn/m1_cnn_dqn_final.pt",
+        # "models_m1_cnn/m1_cnn_dqn_best_ep_*.pt",
+        # "models_m1_cnn/m1_cnn_dqn_ep_*.pt",
+        
+        # # Ultra-light CNN models
+        # "models_cnn/cnn_dqn_final.pt",
+        # "models_cnn/cnn_dqn_best_ep_*.pt",
+        # "models_cnn/cnn_dqn_ep_*.pt",
+        
+        # # Enhanced Double DQN models
+        # "models_enhanced/enhanced_double_dqn_final.pt",
+        # "models_enhanced/enhanced_double_dqn_best_ep_*.pt",
+        # "models_enhanced/enhanced_double_dqn_ep_*.pt",
+        
+        # # Fixed Double DQN models (legacy)
+        # "models_fixed/double_dqn_ep_150000.pt",
+        # "models_fixed/double_dqn_final.pt",
+        # "models_fixed/double_dqn_best_ep_*.pt",
+        # "models_fixed/double_dqn_ep_*.pt",
     ]
     
     for pattern in model_candidates:
         if '*' in pattern:
             # Handle glob patterns for best models
-            import glob
             matches = glob.glob(pattern)
             if matches:
                 # Return the highest episode number
-                matches.sort(key=lambda x: int(x.split('_ep_')[1].split('.pt')[0]))
+                matches.sort(key=lambda x: int(x.split('_ep_')[1].split('.pt')[0]) if '_ep_' in x else 0)
                 return matches[-1]
         else:
             if os.path.exists(pattern):
