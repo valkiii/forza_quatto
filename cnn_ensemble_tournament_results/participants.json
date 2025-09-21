@@ -1,0 +1,283 @@
+[
+  {
+    "name": "M1-CNN-10k",
+    "type": "cnn_model",
+    "config": {
+      "path": "models_m1_cnn/m1_cnn_dqn_ep_10000.pt",
+      "architecture": "m1_optimized"
+    }
+  },
+  {
+    "name": "M1-CNN-20k",
+    "type": "cnn_model",
+    "config": {
+      "path": "models_m1_cnn/m1_cnn_dqn_ep_20000.pt",
+      "architecture": "m1_optimized"
+    }
+  },
+  {
+    "name": "M1-CNN-50k",
+    "type": "cnn_model",
+    "config": {
+      "path": "models_m1_cnn/m1_cnn_dqn_ep_50000.pt",
+      "architecture": "m1_optimized"
+    }
+  },
+  {
+    "name": "M1-CNN-100k",
+    "type": "cnn_model",
+    "config": {
+      "path": "models_m1_cnn/m1_cnn_dqn_ep_100000.pt",
+      "architecture": "m1_optimized"
+    }
+  },
+  {
+    "name": "M1-CNN-150k",
+    "type": "cnn_model",
+    "config": {
+      "path": "models_m1_cnn/m1_cnn_dqn_ep_150000.pt",
+      "architecture": "m1_optimized"
+    }
+  },
+  {
+    "name": "M1-CNN-200k",
+    "type": "cnn_model",
+    "config": {
+      "path": "models_m1_cnn/m1_cnn_dqn_ep_200000.pt",
+      "architecture": "m1_optimized"
+    }
+  },
+  {
+    "name": "M1-CNN-250k",
+    "type": "cnn_model",
+    "config": {
+      "path": "models_m1_cnn/m1_cnn_dqn_ep_250000.pt",
+      "architecture": "m1_optimized"
+    }
+  },
+  {
+    "name": "M1-CNN-300k",
+    "type": "cnn_model",
+    "config": {
+      "path": "models_m1_cnn/m1_cnn_dqn_ep_300000.pt",
+      "architecture": "m1_optimized"
+    }
+  },
+  {
+    "name": "M1-CNN-350k",
+    "type": "cnn_model",
+    "config": {
+      "path": "models_m1_cnn/m1_cnn_dqn_ep_350000.pt",
+      "architecture": "m1_optimized"
+    }
+  },
+  {
+    "name": "M1-CNN-400k",
+    "type": "cnn_model",
+    "config": {
+      "path": "models_m1_cnn/m1_cnn_dqn_ep_400000.pt",
+      "architecture": "m1_optimized"
+    }
+  },
+  {
+    "name": "M1-CNN-450k",
+    "type": "cnn_model",
+    "config": {
+      "path": "models_m1_cnn/m1_cnn_dqn_ep_450000.pt",
+      "architecture": "m1_optimized"
+    }
+  },
+  {
+    "name": "M1-CNN-500k",
+    "type": "cnn_model",
+    "config": {
+      "path": "models_m1_cnn/m1_cnn_dqn_ep_500000.pt",
+      "architecture": "m1_optimized"
+    }
+  },
+  {
+    "name": "M1-CNN-550k",
+    "type": "cnn_model",
+    "config": {
+      "path": "models_m1_cnn/m1_cnn_dqn_ep_550000.pt",
+      "architecture": "m1_optimized"
+    }
+  },
+  {
+    "name": "M1-CNN-600k",
+    "type": "cnn_model",
+    "config": {
+      "path": "models_m1_cnn/m1_cnn_dqn_ep_600000.pt",
+      "architecture": "m1_optimized"
+    }
+  },
+  {
+    "name": "Ensemble-Top4-QAvg",
+    "type": "ensemble",
+    "config": {
+      "models": [
+        {
+          "path": "models_m1_cnn/m1_cnn_dqn_ep_600000.pt",
+          "weight": 0.4,
+          "name": "M1-CNN-600k"
+        },
+        {
+          "path": "models_m1_cnn/m1_cnn_dqn_ep_550000.pt",
+          "weight": 0.3,
+          "name": "M1-CNN-550k"
+        },
+        {
+          "path": "models_m1_cnn/m1_cnn_dqn_ep_500000.pt",
+          "weight": 0.2,
+          "name": "M1-CNN-500k"
+        },
+        {
+          "path": "models_m1_cnn/m1_cnn_dqn_ep_450000.pt",
+          "weight": 0.1,
+          "name": "M1-CNN-450k"
+        }
+      ],
+      "method": "q_value_averaging",
+      "name": "Top4-QAvg"
+    }
+  },
+  {
+    "name": "Ensemble-Top4-Vote",
+    "type": "ensemble",
+    "config": {
+      "models": [
+        {
+          "path": "models_m1_cnn/m1_cnn_dqn_ep_600000.pt",
+          "weight": 0.4,
+          "name": "M1-CNN-600k"
+        },
+        {
+          "path": "models_m1_cnn/m1_cnn_dqn_ep_550000.pt",
+          "weight": 0.3,
+          "name": "M1-CNN-550k"
+        },
+        {
+          "path": "models_m1_cnn/m1_cnn_dqn_ep_500000.pt",
+          "weight": 0.2,
+          "name": "M1-CNN-500k"
+        },
+        {
+          "path": "models_m1_cnn/m1_cnn_dqn_ep_450000.pt",
+          "weight": 0.1,
+          "name": "M1-CNN-450k"
+        }
+      ],
+      "method": "weighted_voting",
+      "name": "Top4-Vote"
+    }
+  },
+  {
+    "name": "Ensemble-TopRand-Equal",
+    "type": "ensemble",
+    "config": {
+      "models": [
+        {
+          "path": "models_m1_cnn/m1_cnn_dqn_ep_600000.pt",
+          "weight": 1.0,
+          "name": "M1-CNN-600k"
+        },
+        {
+          "path": "models_m1_cnn/m1_cnn_dqn_ep_300000.pt",
+          "weight": 1.0,
+          "name": "M1-CNN-300k"
+        },
+        {
+          "path": "models_m1_cnn/m1_cnn_dqn_ep_500000.pt",
+          "weight": 1.0,
+          "name": "M1-CNN-500k"
+        },
+        {
+          "path": "models_m1_cnn/m1_cnn_dqn_ep_250000.pt",
+          "weight": 1.0,
+          "name": "M1-CNN-250k"
+        }
+      ],
+      "method": "confidence_weighted",
+      "name": "TopRand-Equal"
+    }
+  },
+  {
+    "name": "Ensemble-Top5-ExpDecay",
+    "type": "ensemble",
+    "config": {
+      "models": [
+        {
+          "path": "models_m1_cnn/m1_cnn_dqn_ep_600000.pt",
+          "weight": 0.5,
+          "name": "M1-CNN-600k"
+        },
+        {
+          "path": "models_m1_cnn/m1_cnn_dqn_ep_550000.pt",
+          "weight": 0.25,
+          "name": "M1-CNN-550k"
+        },
+        {
+          "path": "models_m1_cnn/m1_cnn_dqn_ep_500000.pt",
+          "weight": 0.125,
+          "name": "M1-CNN-500k"
+        },
+        {
+          "path": "models_m1_cnn/m1_cnn_dqn_ep_450000.pt",
+          "weight": 0.0625,
+          "name": "M1-CNN-450k"
+        },
+        {
+          "path": "models_m1_cnn/m1_cnn_dqn_ep_400000.pt",
+          "weight": 0.0625,
+          "name": "M1-CNN-400k"
+        }
+      ],
+      "method": "q_value_averaging",
+      "name": "Top5-ExpDecay"
+    }
+  },
+  {
+    "name": "Ensemble-Random4-RandWeights",
+    "type": "ensemble",
+    "config": {
+      "models": [
+        {
+          "path": "models_m1_cnn/m1_cnn_dqn_ep_200000.pt",
+          "weight": 0.244344777271676,
+          "name": "M1-CNN-200k"
+        },
+        {
+          "path": "models_m1_cnn/m1_cnn_dqn_ep_150000.pt",
+          "weight": 0.0415594438261276,
+          "name": "M1-CNN-150k"
+        },
+        {
+          "path": "models_m1_cnn/m1_cnn_dqn_ep_250000.pt",
+          "weight": 0.03817154820731332,
+          "name": "M1-CNN-250k"
+        },
+        {
+          "path": "models_m1_cnn/m1_cnn_dqn_ep_100000.pt",
+          "weight": 0.6759242306948832,
+          "name": "M1-CNN-100k"
+        }
+      ],
+      "method": "weighted_voting",
+      "name": "Random4-RandWeights"
+    }
+  },
+  {
+    "name": "Random",
+    "type": "baseline",
+    "config": {
+      "agent_type": "random"
+    }
+  },
+  {
+    "name": "Heuristic",
+    "type": "baseline",
+    "config": {
+      "agent_type": "heuristic"
+    }
+  }
+]

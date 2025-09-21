@@ -4,22 +4,22 @@
   "models": [
     {
       "path": "models_m1_cnn/m1_cnn_dqn_ep_620000.pt",
-      "weight": 0.4,
+      "weight": 0.25,
       "name": "M1-CNN-TOP"
     },
     {
       "path": "models_m1_cnn/m1_cnn_dqn_ep_600000.pt",
-      "weight": 0.3,
+      "weight": 0.25,
       "name": "M1-CNN-2D"
     },
     {
       "path": "models_m1_cnn/m1_cnn_dqn_ep_550000.pt",
-      "weight": 0.2,
+      "weight": 0.25,
       "name": "M1-CNN-3D"
     },
     {
       "path": "models_m1_cnn/m1_cnn_dqn_ep_500000.pt",
-      "weight": 0.1,
+      "weight": 0.25,
       "name": "M1-CNN-4T"
     }
   ]
