@@ -1,0 +1,9 @@
+# Flask API requirements for Connect 4 Ensemble
+Flask==2.3.3
+Flask-CORS==4.0.0
+numpy==1.24.3
+torch==2.0.1
+gunicorn==21.2.0
+
+# Optional: For better logging and monitoring
+python-dotenv==1.0.0

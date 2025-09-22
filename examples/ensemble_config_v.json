@@ -1,26 +1,34 @@
+
+
+
 {
-  "name": "Diverse-Architectures-Example",
-  "method": "q_value_averaging",
-  "models": [
-    {
-      "path": "models_m1_cnn/m1_cnn_dqn_ep_620000.pt",
-      "weight": 0.25,
-      "name": "M1-CNN-TOP"
-    },
-    {
-      "path": "models_m1_cnn/m1_cnn_dqn_ep_600000.pt",
-      "weight": 0.25,
-      "name": "M1-CNN-2D"
-    },
-    {
-      "path": "models_m1_cnn/m1_cnn_dqn_ep_550000.pt",
-      "weight": 0.25,
-      "name": "M1-CNN-3D"
-    },
-    {
-      "path": "models_m1_cnn/m1_cnn_dqn_ep_500000.pt",
-      "weight": 0.25,
-      "name": "M1-CNN-4T"
-    }
-  ]
-}
+    "name": "Custom-Ensemble-Top5Models-q",
+    "method": "q_value_averaging",
+    "models": [
+        {
+          "path": "models_m1_cnn/m1_cnn_dqn_ep_750000.pt",
+          "weight": 0.3,
+          "name": "M1-CNN-750k"
+        },
+        {
+          "path": "models_m1_cnn/m1_cnn_dqn_ep_700000.pt",
+          "weight": 0.2,
+          "name": "M1-CNN-700k"
+        },
+        {
+          "path": "models_m1_cnn/m1_cnn_dqn_ep_650000.pt",
+          "weight": 0.2,
+          "name": "M1-CNN-650k"
+        },
+        {
+          "path": "models_m1_cnn/m1_cnn_dqn_ep_600000.pt",
+          "weight": 0.15,
+          "name": "M1-CNN-600k"
+        },
+        {
+          "path": "models_m1_cnn/m1_cnn_dqn_ep_550000.pt",
+          "weight": 0.15,
+          "name": "M1-CNN-550k"
+        }
+      ]
+ }
