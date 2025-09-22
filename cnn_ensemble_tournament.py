@@ -36,13 +36,14 @@ from ensemble_agent import EnsembleAgent
 class CNNEnsembleTournament:
     """Tournament system for CNN models and ensemble agents with parallel processing."""
     
-    def __init__(self, games_per_matchup: int = 100, n_jobs: int = -1):
+    def __init__(self, games_per_matchup: int = 100, n_jobs: int = -1, participants_file: str = None):
         """
         Initialize tournament system.
         
         Args:
             games_per_matchup: Number of games per agent matchup
             n_jobs: Number of parallel jobs (-1 for all cores)
+            participants_file: Path to JSON file with custom participants (optional)
         """
         self.games_per_matchup = games_per_matchup
         self.n_jobs = n_jobs
@@ -55,10 +56,14 @@ class CNNEnsembleTournament:
         print(f"🎮 Games per matchup: {games_per_matchup:,}")
         print(f"⚡ Parallel jobs: {n_jobs if n_jobs > 0 else 'All cores'}")
         
-        # Discover and prepare all participants
-        self._discover_cnn_models()
-        self._create_ensemble_agents()
-        self._add_baseline_agents()
+        # Load participants from file or auto-discover
+        if participants_file and os.path.exists(participants_file):
+            self._load_participants_from_file(participants_file)
+        else:
+            # Auto-discover and prepare all participants
+            self._discover_cnn_models()
+            self._create_ensemble_agents()
+            self._add_baseline_agents()
         
         print(f"✅ Tournament ready with {len(self.participants)} participants")
     
@@ -106,6 +111,26 @@ class CNNEnsembleTournament:
             print(f"  ✅ {name}: {os.path.basename(path)}")
         
         print(f"📊 Found {len(cnn_models)} CNN models")
+    
+    def _load_participants_from_file(self, participants_file: str):
+        """Load participants from JSON file."""
+        print(f"\n📁 Loading participants from {participants_file}...")
+        
+        try:
+            with open(participants_file, 'r') as f:
+                self.participants = json.load(f)
+            
+            print(f"✅ Loaded {len(self.participants)} participants from file:")
+            for participant in self.participants:
+                print(f"  • {participant['name']} ({participant['type']})")
+                
+        except Exception as e:
+            print(f"❌ Failed to load participants from file: {e}")
+            print("🔄 Falling back to auto-discovery...")
+            # Fall back to auto-discovery
+            self._discover_cnn_models()
+            self._create_ensemble_agents()
+            self._add_baseline_agents()
     
     def _create_ensemble_agents(self):
         """Create various ensemble agent configurations."""
@@ -524,11 +549,33 @@ class CNNEnsembleTournament:
             cbar_kws={'label': 'Win Rate'},
             dendrogram_ratio=0.1
         )
-        g.fig.suptitle('CNN + Ensemble Tournament: Win Rate Matrix (Clustered)', fontsize=16, y=0.98)
+        g.figure.suptitle('CNN + Ensemble Tournament: Win Rate Matrix (Clustered)', fontsize=16, y=0.98)
         plt.savefig(f'{results_dir}/win_rate_clustermap.png', dpi=300, bbox_inches='tight')
         plt.close()
         
-        # 2. Rankings by Type
+        # 2. Regular Win Rate Heatmap (non-clustered)
+        plt.figure(figsize=(14, 12))
+        mask = np.eye(len(participant_names), dtype=bool)  # Mask diagonal
+        sns.heatmap(
+            win_rate_df,
+            annot=False,  # Too many participants for annotations
+            fmt='.2f',
+            cmap='RdYlBu_r',
+            center=0.5,
+            square=True,
+            mask=mask,
+            cbar_kws={'label': 'Win Rate'}
+        )
+        plt.title('CNN + Ensemble Tournament: Win Rate Matrix', fontsize=16)
+        plt.xlabel('Opponent')
+        plt.ylabel('Agent')
+        plt.xticks(rotation=45, ha='right')
+        plt.yticks(rotation=0)
+        plt.tight_layout()
+        plt.savefig(f'{results_dir}/win_rate_heatmap.png', dpi=300, bbox_inches='tight')
+        plt.close()
+        
+        # 3. Rankings by Type
         plt.figure(figsize=(14, 10))
         
         # Separate by type
@@ -554,7 +601,7 @@ class CNNEnsembleTournament:
         plt.savefig(f'{results_dir}/performance_by_type.png', dpi=300, bbox_inches='tight')
         plt.close()
         
-        # 3. Top 15 Rankings Bar Plot
+        # 4. Top 15 Rankings Bar Plot
         plt.figure(figsize=(16, 8))
         top_15 = self.rankings.head(15)
         
@@ -584,7 +631,7 @@ class CNNEnsembleTournament:
         plt.savefig(f'{results_dir}/top_15_rankings.png', dpi=300, bbox_inches='tight')
         plt.close()
         
-        # 4. CNN Training Progression
+        # 5. CNN Training Progression
         cnn_models = self.rankings[self.rankings['Type'] == 'cnn_model'].copy()
         if len(cnn_models) > 1:
             def extract_episodes(name):
@@ -682,6 +729,7 @@ def main():
     parser = argparse.ArgumentParser(description='CNN + Ensemble Tournament')
     parser.add_argument('--games', type=int, default=100, help='Games per matchup (default: 100)')
     parser.add_argument('--jobs', type=int, default=-1, help='Parallel jobs (-1 for all cores)')
+    parser.add_argument('--participants', type=str, help='JSON file with custom participants')
     
     args = parser.parse_args()
     
@@ -691,7 +739,8 @@ def main():
     try:
         tournament = CNNEnsembleTournament(
             games_per_matchup=args.games,
-            n_jobs=args.jobs
+            n_jobs=args.jobs,
+            participants_file=args.participants
         )
         tournament.run_tournament()
         

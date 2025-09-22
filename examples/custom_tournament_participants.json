@@ -8,7 +8,7 @@
     }
   },
   {
-    "name": "M1-CNN-550k",
+    "name": "M1-CNN-550k", 
     "type": "cnn_model",
     "config": {
       "path": "models_m1_cnn/m1_cnn_dqn_ep_550000.pt",
@@ -17,7 +17,7 @@
   },
   {
     "name": "M1-CNN-500k",
-    "type": "cnn_model",
+    "type": "cnn_model", 
     "config": {
       "path": "models_m1_cnn/m1_cnn_dqn_ep_500000.pt",
       "architecture": "m1_optimized"
@@ -58,7 +58,7 @@
   },
   {
     "name": "Custom-Ensemble-WithBaseline",
-    "type": "ensemble",
+    "type": "ensemble", 
     "config": {
       "models": [
         {
