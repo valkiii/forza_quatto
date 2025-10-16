@@ -222,11 +222,127 @@ class Connect4Board:
     
     def has_blocking_move(self, player: int) -> bool:
         """Check if player needs to block opponent's winning move.
-        
+
         Args:
             player: Player ID (1 or 2)
-            
+
         Returns:
             True if opponent can win and must be blocked
         """
         return len(self.find_blocking_moves(player)) > 0
+
+    def count_threats(self, player: int) -> int:
+        """Count the number of 3-in-a-row threats for a player.
+
+        A threat is 3 pieces in a row with an empty space that could complete 4-in-a-row.
+        This includes patterns like XXX_, _XXX, XX_X, and X_XX.
+
+        Args:
+            player: Player ID (1 or 2)
+
+        Returns:
+            Number of 3-in-a-row threats found
+        """
+        threats = 0
+        opponent = 3 - player
+
+        # Check horizontal threats
+        for row in range(self.rows):
+            for col in range(self.cols - 3):
+                window = [self.board[row, col+i] for i in range(4)]
+                if window.count(player) == 3 and window.count(0) == 1:
+                    # Check if the empty space is playable (has support below or is bottom row)
+                    empty_idx = window.index(0)
+                    empty_col = col + empty_idx
+                    if row == self.rows - 1 or self.board[row + 1, empty_col] != 0:
+                        threats += 1
+
+        # Check vertical threats (3 pieces with empty above)
+        for row in range(self.rows - 3):
+            for col in range(self.cols):
+                window = [self.board[row+i, col] for i in range(4)]
+                # For vertical, threat is only valid if top position is empty
+                if (window.count(player) == 3 and window.count(0) == 1 and
+                    self.board[row, col] == 0):  # Top must be empty
+                    threats += 1
+
+        # Check diagonal threats (top-left to bottom-right)
+        for row in range(self.rows - 3):
+            for col in range(self.cols - 3):
+                window = [self.board[row+i, col+i] for i in range(4)]
+                if window.count(player) == 3 and window.count(0) == 1:
+                    # Check if empty space is playable
+                    for i in range(4):
+                        if self.board[row+i, col+i] == 0:
+                            r, c = row+i, col+i
+                            if r == self.rows - 1 or self.board[r + 1, c] != 0:
+                                threats += 1
+                                break
+
+        # Check diagonal threats (top-right to bottom-left)
+        for row in range(self.rows - 3):
+            for col in range(3, self.cols):
+                window = [self.board[row+i, col-i] for i in range(4)]
+                if window.count(player) == 3 and window.count(0) == 1:
+                    # Check if empty space is playable
+                    for i in range(4):
+                        if self.board[row+i, col-i] == 0:
+                            r, c = row+i, col-i
+                            if r == self.rows - 1 or self.board[r + 1, c] != 0:
+                                threats += 1
+                                break
+
+        return threats
+
+    def evaluate_move_tactical(self, col: int, player: int) -> dict:
+        """Evaluate tactical value of a move (creates/blocks threats).
+
+        Args:
+            col: Column to evaluate
+            player: Player making the move
+
+        Returns:
+            Dictionary with tactical information:
+            - 'wins': True if move wins immediately
+            - 'blocks_win': True if move blocks opponent's immediate win
+            - 'creates_threat': Number of new 3-in-a-row threats created
+            - 'blocks_threat': Number of opponent threats blocked
+        """
+        if not self.is_legal_move(col):
+            return {
+                'wins': False,
+                'blocks_win': False,
+                'creates_threat': 0,
+                'blocks_threat': 0
+            }
+
+        opponent = 3 - player
+
+        # Count threats before move
+        player_threats_before = self.count_threats(player)
+        opponent_threats_before = self.count_threats(opponent)
+
+        # Simulate the move
+        temp_board = self.copy()
+        temp_board.make_move(col, player)
+
+        # Check for immediate win
+        wins = temp_board.check_winner() == player
+
+        # Check if blocks opponent's win
+        blocks_win = col in self.find_winning_moves(opponent)
+
+        # Count threats after move
+        player_threats_after = temp_board.count_threats(player)
+        opponent_threats_after = temp_board.count_threats(opponent)
+
+        # Calculate threat changes
+        creates_threat = max(0, player_threats_after - player_threats_before)
+        blocks_threat = max(0, opponent_threats_before - opponent_threats_after)
+
+        return {
+            'wins': wins,
+            'blocks_win': blocks_win,
+            'creates_threat': creates_threat,
+            'blocks_threat': blocks_threat
+        }

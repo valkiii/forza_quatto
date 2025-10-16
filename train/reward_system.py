@@ -13,22 +13,26 @@ class StrategicRewardCalculator:
     
     def __init__(self, reward_config=None):
         """Initialize reward calculator with configurable reward values.
-        
+
         Args:
             reward_config: Dictionary with reward values, if None uses defaults
         """
         if reward_config is None:
             # Base rewards (normalized scale)
             self.win_reward = 1.0
-            self.loss_reward = -1.0  
+            self.loss_reward = -1.0
             self.draw_reward = 0.1
-            
+
             # Strategic rewards (AMPLIFIED to be visible vs terminal rewards)
             self.blocked_opponent_reward = 2.0   # AMPLIFIED: was 0.1, now visible vs 10.0 win
             self.missed_block_penalty = -3.0     # AMPLIFIED: strong penalty for missing blocks
-            self.missed_win_penalty = -5.0       # AMPLIFIED: very strong penalty for missing wins  
+            self.missed_win_penalty = -5.0       # AMPLIFIED: very strong penalty for missing wins
             self.played_winning_move_reward = 3.0 # AMPLIFIED: strong reward for winning moves
             self.center_preference_reward = 0.0  # Disabled - commented out below
+
+            # NEW: Tactical 3-in-a-row rewards
+            self.create_threat_reward = 1.5      # Reward for creating 3-in-a-row threat
+            self.block_threat_reward = 1.5       # Reward for blocking opponent's 3-in-a-row threat
         else:
             # Use provided configuration (CRITICAL for training with amplified rewards)
             self.win_reward = reward_config.get("win_reward", 10.0)
@@ -39,6 +43,10 @@ class StrategicRewardCalculator:
             self.missed_win_penalty = reward_config.get("missed_win_penalty", -5.0)
             self.played_winning_move_reward = reward_config.get("played_winning_move_reward", 3.0)
             self.center_preference_reward = reward_config.get("center_preference_reward", 0.0)
+
+            # NEW: Tactical 3-in-a-row rewards
+            self.create_threat_reward = reward_config.get("create_threat_reward", 1.5)
+            self.block_threat_reward = reward_config.get("block_threat_reward", 1.5)
         
     def calculate_reward(self, prev_board: Connect4Board, action: int, 
                         new_board: Connect4Board, agent_id: int, 
@@ -77,27 +85,27 @@ class StrategicRewardCalculator:
     def _evaluate_strategic_move(self, prev_board: Connect4Board, action: int,
                                new_board: Connect4Board, agent_id: int) -> float:
         """Evaluate strategic value of the move.
-        
+
         Args:
             prev_board: Board state before action
             action: Column where agent played
             new_board: Board state after action
             agent_id: Agent's player ID
-            
+
         Returns:
             Strategic reward component
         """
         strategic_reward = 0.0
-        
+
         # Check if agent played a winning move
         agent_winning_moves = prev_board.find_winning_moves(agent_id)
         if action in agent_winning_moves:
             strategic_reward += self.played_winning_move_reward
-        
+
         # Check if agent missed a winning move
         if agent_winning_moves and action not in agent_winning_moves:
             strategic_reward += self.missed_win_penalty
-        
+
         # Check if agent blocked opponent's winning move
         opponent_winning_moves = prev_board.find_winning_moves(3 - agent_id)
         if opponent_winning_moves:
@@ -105,11 +113,22 @@ class StrategicRewardCalculator:
                 strategic_reward += self.blocked_opponent_reward
             else:
                 strategic_reward += self.missed_block_penalty
-        
+
+        # NEW: Tactical 3-in-a-row evaluation
+        tactical_info = prev_board.evaluate_move_tactical(action, agent_id)
+
+        # Reward creating threats (3-in-a-row patterns)
+        if tactical_info['creates_threat'] > 0:
+            strategic_reward += self.create_threat_reward * tactical_info['creates_threat']
+
+        # Reward blocking opponent threats
+        if tactical_info['blocks_threat'] > 0:
+            strategic_reward += self.block_threat_reward * tactical_info['blocks_threat']
+
         # Center preference disabled (set to 0.0)
         # if action in [2, 3, 4]:
         #     strategic_reward += self.center_preference_reward
-            
+
         return strategic_reward
 
 

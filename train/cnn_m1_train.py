@@ -71,12 +71,15 @@ def create_m1_cnn_config() -> Dict[str, Any]:
         "reward_system": "enhanced",
         "reward_config": {
             "win_reward": 20.0,      # Strong rewards for M1 capability
-            "loss_penalty": -20.0,   # Symmetric
+            "loss_reward": -20.0,    # Symmetric (renamed from loss_penalty)
             "draw_reward": 5.0,
-            "threat_reward": 3.0,    # Enhanced for strategic learning
-            "block_reward": 3.0,
-            "center_bonus": 1.5,     # Stronger spatial learning
-            "height_penalty": -0.1
+            "played_winning_move_reward": 3.0,  # Reward for taking winning move
+            "blocked_opponent_reward": 2.5,     # Reward for blocking immediate win
+            "missed_win_penalty": -5.0,         # Penalty for missing win
+            "missed_block_penalty": -4.0,       # Penalty for missing block
+            "create_threat_reward": 2.0,        # NEW: Reward for creating 3-in-a-row threat
+            "block_threat_reward": 2.0,         # NEW: Reward for blocking 3-in-a-row threat
+            "center_preference_reward": 0.0     # Disabled - let network learn this
         },
         
         # M1-specific monitoring
