@@ -35,7 +35,10 @@ class TrainingMonitor:
         
         # Training metrics
         self.episode_rewards = []
-        self.win_rates = []
+        self.win_rates = []  # vs Random (legacy, for compatibility)
+        self.win_rates_vs_random = []
+        self.win_rates_vs_heuristic = []
+        self.win_rates_vs_league = []
         self.loss_values = []
         self.q_value_stats = []
         self.strategic_metrics = []
@@ -267,34 +270,46 @@ class TrainingMonitor:
                         visual_row.extend([''] * 14)  # Empty Q-value columns
                     writer.writerow(visual_row)
     
-    def log_episode(self, episode: int, reward: float, agent: DoubleDQNAgent, 
-                   win_rate: float = None, q_values: np.ndarray = None, 
-                   collect_q_values: bool = True, strategic_score: float = None):
+    def log_episode(self, episode: int, reward: float, agent: DoubleDQNAgent,
+                   win_rate: float = None, q_values: np.ndarray = None,
+                   collect_q_values: bool = True, strategic_score: float = None,
+                   win_rate_vs_heuristic: float = None, win_rate_vs_league: float = None):
         """Log metrics for a single episode.
-        
+
         Args:
             episode: Episode number
             reward: Episode reward
             agent: The training agent
-            win_rate: Current win rate (if available)
+            win_rate: Current win rate vs random (if available)
             q_values: Q-values from recent decisions
             collect_q_values: Whether to collect Q-values for visualization
+            strategic_score: Strategic score
+            win_rate_vs_heuristic: Win rate vs heuristic opponent
+            win_rate_vs_league: Win rate vs league champion
         """
         # Store basic metrics
         self.episode_rewards.append(reward)
         self.recent_rewards.append(reward)
-        
+
         # Track overall win rate from all training games
         self.total_training_games += 1
         if reward > 0:  # Win is indicated by positive reward
             self.total_training_wins += 1
         self.overall_win_rate = self.total_training_wins / self.total_training_games
-        
+
         # Track recent wins for display
         self.recent_wins.append(1 if reward > 0 else 0)
-        
+
+        # Track all win rates separately
         if win_rate is not None:
-            self.win_rates.append(win_rate)
+            self.win_rates.append(win_rate)  # Legacy
+            self.win_rates_vs_random.append(win_rate)
+
+        if win_rate_vs_heuristic is not None:
+            self.win_rates_vs_heuristic.append(win_rate_vs_heuristic)
+
+        if win_rate_vs_league is not None:
+            self.win_rates_vs_league.append(win_rate_vs_league)
         
         # Agent statistics
         stats = agent.get_stats()
@@ -711,55 +726,48 @@ class TrainingMonitor:
                         transform=ax1.transAxes, ha='center', va='center')
                 ax1.set_title('Episode Rewards')
             
-            # Plot 2: Win rate and exploration
+            # Plot 2: All Win Rates (vs Random, Heuristic, League)
             ax2 = fig.add_subplot(gs[0, 1])
-            if (self.win_rates and len(self.win_rates) > 0) or (self.exploration_rates and len(self.exploration_rates) > 0):
+            if (self.win_rates_vs_random or self.win_rates_vs_heuristic or self.win_rates_vs_league):
                 try:
-                    ax2b = ax2.twinx()
-                    
-                    # Create proper episode scales for both metrics
-                    # Win rates are recorded every eval_frequency episodes (typically 250)
                     eval_frequency = getattr(self, 'eval_frequency', 250)
-                    win_rate_episodes = np.arange(1, len(self.win_rates) + 1) * eval_frequency
-                    
-                    # Exploration rates are recorded every episode, so use 1:1 scale
-                    epsilon_episodes = np.arange(1, len(self.exploration_rates) + 1)
-                    
-                    # Plot win rates if available
-                    if self.win_rates and len(self.win_rates) > 0:
-                        ax2.plot(win_rate_episodes, self.win_rates, 'b-', label='Win Rate', linewidth=2)
-                        ax2.set_ylabel('Win Rate', color='b')
-                        ax2.tick_params(axis='y', labelcolor='b')
-                        ax2.legend(loc='upper left')
-                    
-                    # Plot exploration rates if available
-                    if self.exploration_rates and len(self.exploration_rates) > 0:
-                        ax2b.plot(epsilon_episodes, self.exploration_rates, 'r-', alpha=0.7, label='Epsilon', linewidth=1)
-                        ax2b.set_ylabel('Epsilon', color='r')
-                        ax2b.tick_params(axis='y', labelcolor='r')
-                        ax2b.legend(loc='upper right')
-                    
-                    # Set consistent x-axis limits
-                    max_episode = 0
-                    if self.win_rates and len(self.win_rates) > 0:
-                        max_episode = max(max_episode, win_rate_episodes[-1])
-                    if self.exploration_rates and len(self.exploration_rates) > 0:
-                        max_episode = max(max_episode, epsilon_episodes[-1])
-                    if max_episode > 0:
-                        ax2.set_xlim(0, max_episode)
-                        ax2b.set_xlim(0, max_episode)
-                    
+
+                    # Plot vs Random (blue)
+                    if self.win_rates_vs_random and len(self.win_rates_vs_random) > 0:
+                        episodes = np.arange(1, len(self.win_rates_vs_random) + 1) * eval_frequency
+                        ax2.plot(episodes, self.win_rates_vs_random, 'b-',
+                                label='vs Random', linewidth=2, marker='o', markersize=3, alpha=0.7)
+
+                    # Plot vs Heuristic (red)
+                    if self.win_rates_vs_heuristic and len(self.win_rates_vs_heuristic) > 0:
+                        episodes = np.arange(1, len(self.win_rates_vs_heuristic) + 1) * eval_frequency
+                        ax2.plot(episodes, self.win_rates_vs_heuristic, 'r-',
+                                label='vs Heuristic', linewidth=2, marker='s', markersize=3, alpha=0.7)
+
+                    # Plot vs League (green)
+                    if self.win_rates_vs_league and len(self.win_rates_vs_league) > 0:
+                        episodes = np.arange(1, len(self.win_rates_vs_league) + 1) * eval_frequency
+                        ax2.plot(episodes, self.win_rates_vs_league, 'g-',
+                                label='vs League', linewidth=2, marker='^', markersize=3, alpha=0.7)
+
+                    # Add reference lines
+                    ax2.axhline(y=0.5, color='gray', linestyle='--', linewidth=1, alpha=0.4, label='50% baseline')
+                    ax2.axhline(y=0.3, color='orange', linestyle='--', linewidth=1, alpha=0.4, label='30% critical')
+
                     ax2.set_xlabel('Episode')
-                    ax2.set_title('Win Rate vs Exploration')
+                    ax2.set_ylabel('Win Rate')
+                    ax2.set_title('Win Rates: All Opponents')
+                    ax2.set_ylim(-0.05, 1.05)
+                    ax2.legend(loc='best', fontsize=8)
                     ax2.grid(True, alpha=0.3)
-                    
+
                 except Exception as e:
-                    print(f"Warning: Could not plot win rate vs exploration: {e}")
+                    print(f"Warning: Could not plot win rates: {e}")
                     ax2.text(0.5, 0.5, f'Plot Error: {str(e)}', transform=ax2.transAxes, ha='center')
             else:
-                ax2.text(0.5, 0.5, 'No evaluation data yet', 
+                ax2.text(0.5, 0.5, 'No evaluation data yet',
                         transform=ax2.transAxes, ha='center', va='center')
-                ax2.set_title('Win Rate vs Exploration')
+                ax2.set_title('Win Rates: All Opponents')
             
             # Plot 3: Strategic metrics
             ax3 = fig.add_subplot(gs[0, 2:])
