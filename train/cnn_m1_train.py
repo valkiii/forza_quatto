@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
-"""Training script for M1-optimized CNN Dueling DQN agent (~80k parameters)."""
+"""Training script for Enhanced M1 CNN Dueling DQN agent (~550k parameters)."""
 
 import os
 import sys
 import json
 import csv
 import shutil
+import math
 from typing import Dict, Any, Optional, Tuple
 import numpy as np
 import random
@@ -20,74 +21,78 @@ from agents.heuristic_agent import HeuristicAgent
 from agents.cnn_dueling_dqn_agent import CNNDuelingDQNAgent
 from train.reward_system import calculate_enhanced_reward
 from train.training_monitor import TrainingMonitor
+from train.curriculum_manager import CurriculumManager, select_opponent_type
 
 
-def create_m1_cnn_config() -> Dict[str, Any]:
-    """Create M1-optimized configuration for CNN Dueling DQN."""
+def create_m1_cnn_config(target_episodes: int = 300000) -> Dict[str, Any]:
+    """Create M1-optimized configuration for Enhanced CNN Dueling DQN.
+
+    Args:
+        target_episodes: Target number of episodes to train
+
+    Returns:
+        Configuration dictionary with enhanced features
+    """
     return {
-        # M1-optimized CNN parameters (~80k parameters)
+        # Enhanced M1 CNN parameters (~550k parameters)
         "input_channels": 2,  # Player and opponent channels
-        "hidden_size": 64,    # M1-optimized hidden size
-        "architecture": "m1_optimized",  # Use M1-optimized architecture
-        
-        # M1-specific learning parameters
-        "learning_rate": 2e-4,  # Optimal for M1 CNN size
+        "hidden_size": 256,   # Enhanced hidden size (not used in new architecture but kept for compatibility)
+        "architecture": "m1_optimized",  # Use Enhanced M1 architecture
+
+        # OPTIMIZED LEARNING PARAMETERS (from enhanced_fixed)
+        "learning_rate": 5e-4,  # Higher LR works well with stronger reward signals
         "discount_factor": 0.95,
         "weight_decay": 1e-5,   # Regularization for larger CNN
-        "gradient_clip_norm": 1.0,
+        "gradient_clip_norm": 10.0,  # Higher clip for stronger gradients
+
+        # ADAPTIVE EXPLORATION (higher minimum for heuristic phase)
         "epsilon_start": 1.0,
-        "epsilon_end": 0.01,
-        "epsilon_decay": 0.99999,  # Slower decay for more episodes
-        
-        # M1-optimized training parameters
-        "batch_size": 64,       # M1 sweet spot
+        "epsilon_end": 0.05,  # Increased from 0.01 to maintain exploration
+        "epsilon_tau": 150000,  # Exponential decay tau for adaptive epsilon
+        "epsilon_decay": 0.99999,  # Legacy parameter (not used with adaptive epsilon)
+
+        # Enhanced training parameters for larger model
+        "batch_size": 64,       # Optimal batch size for M1
         "gradient_accumulation": 2,  # Simulate batch_size=128
         "buffer_size": 50000,   # Memory efficient for M1
         "min_buffer_size": 1000,
-        "target_update_freq": 500,  # More frequent updates work well on M1
-        
-        # Extended training schedule for M1 capability
-        "num_episodes": 300000,  # Leverage M1's efficiency
+        "target_update_freq": 1000,  # Stable updates for larger model
+
+        # TRAINING SCHEDULE (configurable)
+        "num_episodes": target_episodes,  # Configurable via command line
         "eval_frequency": 1000,
-        "save_frequency": 2000,
+        "save_frequency": 25000,  # Save less frequently to reduce I/O
         "random_seed": 42,
-        
-        # M1-optimized curriculum learning
-        "warmup_phase_end": 15000,   # Extended warmup for larger model
-        "random_phase_end": 75000,   # Pattern learning phase
-        "heuristic_phase_end": 225000,  # Strategic learning phase
-        "self_play_start": 150000,   # Self-play for advanced tactics
-        "self_play_ratio": 0.6,
-        "heuristic_preservation_rate": 0.3,
-        "random_diversity_rate": 0.1,
-        
-        # M1 CNN features
-        "use_batch_norm": True,  # M1 handles BatchNorm efficiently
-        "use_dropout": False,    # Not needed with BatchNorm
-        "spatial_augmentation": False,
-        "optimism_bootstrap_end": 3000,  # Extended for pattern stabilization
-        
-        # Enhanced reward system for M1 capability
-        "reward_system": "enhanced",
-        "reward_config": {
-            "win_reward": 20.0,      # Strong rewards for M1 capability
-            "loss_penalty": -20.0,   # Symmetric
-            "draw_reward": 5.0,
-            "threat_reward": 3.0,    # Enhanced for strategic learning
-            "block_reward": 3.0,
-            "center_bonus": 1.5,     # Stronger spatial learning
-            "height_penalty": -0.1
+
+        # GRADUAL CURRICULUM (20k transition instead of 5k)
+        "curriculum": {
+            "random_phase_end": 50000,
+            "heuristic_phase_end": 150000,
+            "transition_episodes": 20000,  # Gradual adaptation between phases
+            "league_start": 200000
         },
-        
-        # M1-specific monitoring
+
+        # FIXED REWARD SYSTEM - STRONGER SIGNALS!
+        "reward_config": {
+            "win_reward": 10.0,
+            "loss_reward": -10.0,
+            "draw_reward": 2.0,
+            # CRITICAL: Strong strategic rewards for better learning
+            "blocked_opponent_reward": 2.0,  # 10x stronger than before
+            "missed_block_penalty": -5.0,     # Strong penalty for missing blocks
+            "missed_win_penalty": -8.0,       # Critical penalty for missing wins
+            "played_winning_move_reward": 3.0  # Strong reward for winning moves
+        },
+
+        # EARLY STOPPING
         "early_stopping": True,
-        "early_stopping_threshold": 0.85,  # Higher threshold for M1 capability
-        "early_stopping_patience": 20,
+        "early_stopping_threshold": 0.70,  # Realistic threshold
+        "early_stopping_patience": 50000,  # Generous patience
         "save_best_model": True,
-        
-        # M1 GPU optimizations
+
+        # M1 GPU OPTIMIZATIONS
         "enable_mps_optimizations": True,
-        "use_automatic_mixed_precision": False  # Keep disabled for compatibility
+        "use_automatic_mixed_precision": False
     }
 
 
@@ -108,7 +113,31 @@ def setup_m1_logging(log_dir: str) -> str:
     return log_file
 
 
-def play_m1_training_game(agent: CNNDuelingDQNAgent, opponent, 
+def get_adaptive_epsilon(episode: int, config: Dict[str, Any], curriculum: CurriculumManager) -> float:
+    """Calculate adaptive epsilon with curriculum boosts.
+
+    Args:
+        episode: Current episode number
+        config: Training configuration
+        curriculum: Curriculum manager for phase-based adjustments
+
+    Returns:
+        Adaptive epsilon value
+    """
+    epsilon_start = config["epsilon_start"]
+    epsilon_end = config["epsilon_end"]
+    epsilon_tau = config["epsilon_tau"]
+
+    # Exponential decay
+    base_epsilon = epsilon_end + (epsilon_start - epsilon_end) * math.exp(-episode / epsilon_tau)
+
+    # Apply curriculum boost during transitions
+    epsilon = curriculum.get_epsilon_boost(episode, base_epsilon)
+
+    return max(epsilon_end, min(1.0, epsilon))
+
+
+def play_m1_training_game(agent: CNNDuelingDQNAgent, opponent,
                           reward_config: dict = None, full_config: dict = None) -> Tuple[Optional[int], int, dict]:
     """Play training game with M1 CNN agent and enhanced spatial scoring."""
     board = Connect4Board()
@@ -251,28 +280,34 @@ def play_m1_training_game(agent: CNNDuelingDQNAgent, opponent,
     return board.check_winner(), move_count, spatial_stats
 
 
-def train_m1_cnn_agent():
-    """Main training loop for M1-optimized CNN Dueling DQN."""
-    print("🚀 M1-OPTIMIZED CNN DUELING DQN TRAINING - BALANCED PERFORMANCE")
+def train_m1_cnn_agent(target_episodes: int = 300000, clean_start: bool = True):
+    """Main training loop for Enhanced M1 CNN Dueling DQN.
+
+    Args:
+        target_episodes: Number of episodes to train
+        clean_start: Whether to clean up previous runs
+    """
+    print("🚀 ENHANCED M1 CNN DUELING DQN TRAINING - HIGH CAPACITY (~550k params)")
     print("=" * 70)
-    
-    # Clean up previous runs
-    for dir_name in ["models_m1_cnn", "logs_m1_cnn"]:
-        if os.path.exists(dir_name):
-            print(f"🧹 Cleaning up {dir_name}...")
-            shutil.rmtree(dir_name)
-    
-    print("✅ Cleanup complete\n")
-    
-    # Load configuration
-    config = create_m1_cnn_config()
-    print("🔧 M1-OPTIMIZED CNN FEATURES:")
-    print(f"  1. ✅ M1-optimized: ~80k parameters (balanced capability)")
-    print(f"  2. ✅ Column attention: Preserves Connect4 position info")
-    print(f"  3. ✅ BatchNorm layers: Optimized for M1 MPS backend")
-    print(f"  4. ✅ Smart training: lr={config['learning_rate']}, batch={config['batch_size']}")
-    print(f"  5. ✅ Extended episodes: {config['num_episodes']:,}")
-    print(f"  6. ✅ M1 GPU acceleration: ~100-200 episodes/minute")
+
+    # Clean up previous runs if requested
+    if clean_start:
+        for dir_name in ["models_m1_cnn", "logs_m1_cnn"]:
+            if os.path.exists(dir_name):
+                print(f"🧹 Cleaning up {dir_name}...")
+                shutil.rmtree(dir_name)
+        print("✅ Cleanup complete\n")
+
+    # Load configuration with target episodes
+    config = create_m1_cnn_config(target_episodes=target_episodes)
+    print("🔧 ENHANCED CNN FEATURES:")
+    print(f"  1. ✅ Enhanced architecture: ~550k parameters (high capacity)")
+    print(f"  2. ✅ Spatial attention: Focuses on critical board regions")
+    print(f"  3. ✅ Deep conv blocks: 6 layers for complex pattern detection")
+    print(f"  4. ✅ Strong rewards: 10x strategic signal strength")
+    print(f"  5. ✅ Curriculum learning: Gradual 20k-episode transitions")
+    print(f"  6. ✅ Training: lr={config['learning_rate']}, batch={config['batch_size']}, episodes={config['num_episodes']:,}")
+    print(f"  7. ✅ M1 GPU acceleration: ~100-200 episodes/minute")
     print()
     
     # Set seeds for reproducibility
@@ -338,85 +373,78 @@ def train_m1_cnn_agent():
     # Initialize opponents
     random_opponent = RandomAgent(player_id=2, seed=config["random_seed"] + 1)
     heuristic_opponent = HeuristicAgent(player_id=2, seed=config["random_seed"] + 2)
-    
+
+    # Initialize curriculum manager with gradual transitions
+    curriculum = CurriculumManager(config["curriculum"])
+    print("\n📚 CURRICULUM SCHEDULE (GRADUAL TRANSITIONS - 20k episodes):")
+    print(f"  Episodes 1-50,000: Random opponents (foundation)")
+    print(f"  Episodes 50,000-70,000: GRADUAL transition (20k episodes)")
+    print(f"  Episodes 70,000-150,000: Heuristic opponents (strategy)")
+    print(f"  Episodes 150,000+: Mixed training with adaptivity")
+    print()
+
     # Training tracking
     episode_rewards = []
     best_win_rate = 0.0
     early_stopping_counter = 0
     
-    # Curriculum phases
-    WARMUP_PHASE_END = config["warmup_phase_end"]
-    RANDOM_PHASE_END = config["random_phase_end"]
-    HEURISTIC_PHASE_END = config["heuristic_phase_end"]
-    SELF_PLAY_START = config["self_play_start"]
-    
-    print(f"🎯 M1 CNN CURRICULUM SCHEDULE:")
-    print(f"  Episodes 1-{config['optimism_bootstrap_end']:,}: 🛡️  BOOTSTRAP (spatial warmup)")
-    print(f"  Episodes {config['optimism_bootstrap_end'] + 1:,}-{WARMUP_PHASE_END:,}: vs Random (pattern recognition)")
-    print(f"  Episodes {WARMUP_PHASE_END + 1:,}-{RANDOM_PHASE_END:,}: vs Random (foundation)")
-    print(f"  Episodes {RANDOM_PHASE_END + 1:,}-{HEURISTIC_PHASE_END:,}: vs Heuristic (strategy)")
-    print(f"  Episodes {SELF_PLAY_START:,}+: Mixed training")
-    print()
-    
-    def get_current_opponent(episode):
-        """M1-optimized opponent selection."""
-        if episode <= WARMUP_PHASE_END:
-            return random_opponent, "Random-Warmup"
-        elif episode <= RANDOM_PHASE_END:
-            return random_opponent, "Random"
-        elif episode <= SELF_PLAY_START:
-            return heuristic_opponent, "Heuristic"
-        else:
-            # Mixed phase
-            rand_val = np.random.random()
-            if rand_val < config['heuristic_preservation_rate']:
-                return heuristic_opponent, "Heuristic"
-            elif rand_val < config['heuristic_preservation_rate'] + config['random_diversity_rate']:
-                return random_opponent, "Random"
-            else:
-                return heuristic_opponent, "Heuristic-SP"
-    
-    print("🔥 Starting M1 CNN training episodes...")
-    
+    print("🔥 Starting Enhanced M1 CNN training episodes...")
+
     # Training loop
-    current_opponent_name = ""
-    
+    current_phase_name = ""
+
     for episode in range(config["num_episodes"]):
         episode_num = episode + 1
-        
-        # Get opponent
-        current_opponent, opponent_name = get_current_opponent(episode_num)
-        
+
+        # Get current curriculum phase description
+        phase_desc = curriculum.get_phase_description(episode_num)
+        probs = curriculum.get_opponent_probabilities(episode_num)
+
         # Announce phase changes
-        if opponent_name != current_opponent_name:
-            print(f"\n🔄 M1 CNN PHASE CHANGE at episode {episode_num:,}: {current_opponent_name} → {opponent_name}")
-            current_opponent_name = opponent_name
-            monitor.set_current_opponent(opponent_name)
-        
+        if phase_desc != current_phase_name:
+            print(f"\n🔄 CURRICULUM PHASE at episode {episode_num:,}: {phase_desc}")
+            print(f"   Probabilities: Random={probs['random']:.0%}, Heuristic={probs['heuristic']:.0%}")
+            current_phase_name = phase_desc
+
+        # Select opponent using curriculum manager
+        opponent_type = select_opponent_type(curriculum, episode_num, agent.rng)
+        if opponent_type == "random":
+            opponent = random_opponent
+            opponent_name = "Random"
+        elif opponent_type == "heuristic":
+            opponent = heuristic_opponent
+            opponent_name = "Heuristic"
+        else:
+            # League not implemented yet, use heuristic
+            opponent = heuristic_opponent
+            opponent_name = "Heuristic"
+
+        monitor.set_current_opponent(opponent_name)
+
         # Reset episode
         agent.reset_episode()
-        
-        # Training mode selection
-        reward_config_to_use = None if episode_num < config["optimism_bootstrap_end"] else config["reward_config"]
+
+        # Always use enhanced reward system (no bootstrap phase)
+        reward_config_to_use = config["reward_config"]
         
         # Play training game
         winner, _, spatial_stats = play_m1_training_game(
-            agent, current_opponent, reward_config_to_use, config
+            agent, opponent, reward_config_to_use, config
         )
         
-        # Calculate episode reward
+        # Calculate episode reward (using enhanced reward system)
         if winner == agent.player_id:
-            episode_reward = 25.0  # Enhanced reward for M1
+            episode_reward = config["reward_config"]["win_reward"]  # 10.0
         elif winner is not None:
-            if episode_num < config["optimism_bootstrap_end"]:
-                episode_reward = 0.0
-            else:
-                episode_reward = -20.0
+            episode_reward = config["reward_config"]["loss_reward"]  # -10.0
         else:
-            episode_reward = 12.0  # Enhanced draw reward
+            episode_reward = config["reward_config"]["draw_reward"]  # 2.0
         
         episode_rewards.append(episode_reward)
-        
+
+        # Update epsilon with adaptive curriculum-aware decay
+        agent.epsilon = get_adaptive_epsilon(episode_num, config, curriculum)
+
         # Log episode
         spatial_score_for_monitor = spatial_stats.get('spatial_score', 0.0)
         monitor.log_episode(episode_num, episode_reward, agent, strategic_score=spatial_score_for_monitor)
@@ -432,7 +460,7 @@ def train_m1_cnn_agent():
         # Periodic evaluation
         if episode_num % config["eval_frequency"] == 0:
             opponents = {
-                "current": current_opponent,
+                "current": opponent,
                 "random": random_opponent,
                 "heuristic": heuristic_opponent
             }
@@ -491,8 +519,8 @@ def train_m1_cnn_agent():
             vs_random = eval_results["random"]["win_rate"]
             vs_heuristic = eval_results["heuristic"]["win_rate"]
             
-            # Early stopping check
-            if config["early_stopping"] and episode_num > HEURISTIC_PHASE_END:
+            # Early stopping check (only after heuristic phase)
+            if config["early_stopping"] and episode_num > config["curriculum"]["heuristic_phase_end"]:
                 if current_win_rate > config["early_stopping_threshold"]:
                     early_stopping_counter += 1
                     if early_stopping_counter >= config["early_stopping_patience"]:
@@ -528,8 +556,11 @@ def train_m1_cnn_agent():
                   f"vs Rand: {vs_random:.1%} | ε: {agent.epsilon:.3f} | "
                   f"Spatial: {spatial_score:.2f}")
             
-            # Log evaluation episode with win rate for plotting
-            monitor.log_episode(episode_num, avg_reward, agent, win_rate=current_win_rate, strategic_score=spatial_score)
+            # Log evaluation episode with win rates for plotting
+            monitor.log_episode(episode_num, avg_reward, agent,
+                              win_rate=vs_random,
+                              win_rate_vs_heuristic=vs_heuristic,
+                              strategic_score=spatial_score)
             
             # Generate plots
             if episode_num % 2000 == 0:
@@ -562,11 +593,50 @@ def train_m1_cnn_agent():
 
 
 if __name__ == "__main__":
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        description='Enhanced M1 CNN Training with Configurable Episodes',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  # Train for 300k episodes (default)
+  python train/cnn_m1_train.py
+
+  # Train for specific number of episodes
+  python train/cnn_m1_train.py --episodes 200000
+
+  # Train without cleaning up previous runs
+  python train/cnn_m1_train.py --episodes 150000 --no-clean
+
+  # Quick test run
+  python train/cnn_m1_train.py --episodes 10000
+        """
+    )
+
+    parser.add_argument(
+        '--episodes', '-e',
+        type=int,
+        default=300000,
+        help='Number of episodes to train (default: 300000)'
+    )
+
+    parser.add_argument(
+        '--no-clean',
+        action='store_true',
+        help='Do not clean up previous training runs'
+    )
+
+    args = parser.parse_args()
+
     try:
-        train_m1_cnn_agent()
+        train_m1_cnn_agent(
+            target_episodes=args.episodes,
+            clean_start=not args.no_clean
+        )
     except KeyboardInterrupt:
-        print("\n⚠️ M1 CNN training interrupted by user")
+        print("\n⚠️ Enhanced M1 CNN training interrupted by user")
     except Exception as e:
-        print(f"\n❌ M1 CNN training failed: {e}")
+        print(f"\n❌ Enhanced M1 CNN training failed: {e}")
         import traceback
         traceback.print_exc()

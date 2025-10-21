@@ -89,39 +89,81 @@ class CNNDuelingNetwork(nn.Module):
         )
         
     def _build_m1_optimized(self, input_channels: int, action_size: int):
-        """Build M1-optimized architecture (~80k parameters) - balances performance with capability."""
-        # M1 GPU handles 32-64 channels efficiently for this size target
-        self.conv_block = nn.Sequential(
-            # Layer 1: Basic feature detection (optimal for M1)
+        """Build Enhanced M1 architecture (~550k parameters) - optimized for Connect4."""
+        # Balanced architecture: deep enough for complex patterns, efficient for M1 GPU
+
+        # Block 1: Initial feature extraction (lighter)
+        self.conv_block1 = nn.Sequential(
             nn.Conv2d(input_channels, 32, kernel_size=3, padding=1),  # 32 x 6 x 7
             nn.ReLU(),
-            nn.BatchNorm2d(32),  # M1's MPS backend handles BatchNorm efficiently
-            
-            # Layer 2: Pattern combination
+            nn.BatchNorm2d(32),
+            nn.Conv2d(32, 32, kernel_size=3, padding=1),  # 32 x 6 x 7
+            nn.ReLU(),
+            nn.BatchNorm2d(32)
+        )
+
+        # Block 2: Pattern combination
+        self.conv_block2 = nn.Sequential(
             nn.Conv2d(32, 64, kernel_size=3, padding=1),  # 64 x 6 x 7
+            nn.ReLU(),
+            nn.BatchNorm2d(64),
+            nn.Conv2d(64, 64, kernel_size=3, padding=1),  # 64 x 6 x 7
             nn.ReLU(),
             nn.BatchNorm2d(64)
         )
-        
-        # Spatial reduction (but not global!) - Keep columns, reduce rows
-        # This preserves critical Connect4 positional information
-        self.spatial_reduce = nn.Conv2d(64, 32, kernel_size=(3, 1), stride=(2, 1))  # Output: 32 x 2 x 7
-        
-        # Flatten: 32 * 2 * 7 = 448 features (preserves column structure)
-        self.conv_output_size = 448
-        
-        # Fully connected layers optimized for M1 (corrected input size)
-        self.feature_fc = nn.Sequential(
-            nn.Linear(448, 96),   # Corrected: 448 input features
+
+        # Block 3: High-level pattern detection (lighter)
+        self.conv_block3 = nn.Sequential(
+            nn.Conv2d(64, 128, kernel_size=3, padding=1),  # 128 x 6 x 7
             nn.ReLU(),
-            nn.Dropout(0.1),  # Light dropout for generalization
-            nn.Linear(96, 48),    # Reduced from 64 to 48
+            nn.BatchNorm2d(128),
+            nn.Conv2d(128, 128, kernel_size=3, padding=1),  # 128 x 6 x 7
+            nn.ReLU(),
+            nn.BatchNorm2d(128)
+        )
+
+        # Simplified attention mechanism
+        self.attention = nn.Sequential(
+            nn.Conv2d(128, 32, kernel_size=1),  # Smaller channel reduction
+            nn.ReLU(),
+            nn.Conv2d(32, 1, kernel_size=1),  # Single attention map
+            nn.Sigmoid()
+        )
+
+        # Final feature extraction with spatial pooling
+        self.final_conv = nn.Sequential(
+            nn.Conv2d(128, 64, kernel_size=3, padding=1),  # 64 x 6 x 7
+            nn.ReLU(),
+            nn.BatchNorm2d(64)
+        )
+
+        # Adaptive pooling to fixed size (preserves spatial info but reduces dimensions)
+        self.adaptive_pool = nn.AdaptiveAvgPool2d((3, 7))  # Output: 64 x 3 x 7
+
+        # Calculate flattened size: 64 * 3 * 7 = 1344 features
+        self.conv_output_size = 1344
+
+        # Streamlined fully connected layers (optimized for ~450k params total)
+        self.feature_fc = nn.Sequential(
+            nn.Linear(1344, 128),  # Reduced first layer
+            nn.ReLU(),
+            nn.Dropout(0.1),  # Light dropout
+            nn.Linear(128, 96),  # Smaller hidden layer
             nn.ReLU()
         )
-        
-        # Dueling heads (adjusted for new feature size)
-        self.value_head = nn.Linear(48, 1)
-        self.advantage_head = nn.Linear(48, action_size)
+
+        # Dueling heads
+        self.value_head = nn.Sequential(
+            nn.Linear(96, 32),
+            nn.ReLU(),
+            nn.Linear(32, 1)
+        )
+
+        self.advantage_head = nn.Sequential(
+            nn.Linear(96, 32),
+            nn.ReLU(),
+            nn.Linear(32, action_size)
+        )
     
     def _initialize_weights(self):
         """Initialize weights with optimistic bias for output layers."""
@@ -188,26 +230,41 @@ class CNNDuelingNetwork(nn.Module):
         return q_values
     
     def _forward_m1_optimized(self, x):
-        """Forward pass through M1-optimized architecture."""
-        # Convolutional feature extraction
-        conv_features = self.conv_block(x)  # (batch_size, 64, 6, 7)
-        
-        # Spatial reduction - preserves critical Connect4 positional information
-        reduced_features = self.spatial_reduce(conv_features)  # (batch_size, 32, 2, 7)
-        
-        # Flatten while preserving column structure
-        conv_flat = reduced_features.view(-1, self.conv_output_size)  # (batch_size, 448)
-        
-        # Shared feature processing
-        features = self.feature_fc(conv_flat)  # (batch_size, 48)
-        
+        """Forward pass through Enhanced M1 architecture with attention."""
+        # Multi-block feature extraction with progressive pattern detection
+
+        # Block 1: Initial features
+        conv1 = self.conv_block1(x)  # (batch_size, 32, 6, 7)
+
+        # Block 2: Pattern combination
+        conv2 = self.conv_block2(conv1)  # (batch_size, 64, 6, 7)
+
+        # Block 3: High-level patterns
+        conv3 = self.conv_block3(conv2)  # (batch_size, 128, 6, 7)
+
+        # Apply spatial attention to focus on important board regions
+        attention_weights = self.attention(conv3)  # (batch_size, 1, 6, 7)
+        attended_features = conv3 * attention_weights  # Element-wise multiplication
+
+        # Final convolution
+        final_features = self.final_conv(attended_features)  # (batch_size, 64, 6, 7)
+
+        # Adaptive pooling for controlled dimensionality reduction
+        pooled_features = self.adaptive_pool(final_features)  # (batch_size, 64, 3, 7)
+
+        # Flatten while preserving spatial structure
+        conv_flat = pooled_features.view(-1, self.conv_output_size)  # (batch_size, 1344)
+
+        # Fully connected processing
+        features = self.feature_fc(conv_flat)  # (batch_size, 96)
+
         # Dueling heads
         value = self.value_head(features)  # (batch_size, 1)
         advantage = self.advantage_head(features)  # (batch_size, action_size)
-        
+
         # Combine using dueling formula: Q(s,a) = V(s) + A(s,a) - mean(A(s,:))
         q_values = value + advantage - advantage.mean(dim=1, keepdim=True)
-        
+
         return q_values
 
 

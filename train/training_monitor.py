@@ -856,12 +856,17 @@ class TrainingMonitor:
             
             # Create heatmap data: episodes × actions (7 columns)
             qval_matrix = np.array(self.qvalue_history[state_name])  # Shape: (episodes, 7)
-            
-            # Create heatmap
-            im = ax.imshow(qval_matrix, aspect='auto', cmap='RdYlBu_r', interpolation='nearest')
+
+            # Normalize each row to sum to 1 (convert to probability distribution)
+            # Use softmax for better numerical stability
+            qval_matrix_exp = np.exp(qval_matrix - np.max(qval_matrix, axis=1, keepdims=True))
+            qval_matrix_normalized = qval_matrix_exp / np.sum(qval_matrix_exp, axis=1, keepdims=True)
+
+            # Create heatmap with normalized values
+            im = ax.imshow(qval_matrix_normalized, aspect='auto', cmap='RdYlBu_r', interpolation='nearest')
             
             # Set labels
-            ax.set_title(f'{state_name.replace("_", " ")}', fontsize=10, fontweight='bold')
+            ax.set_title(f'{state_name.replace("_", " ")}\n(Softmax Normalized)', fontsize=10, fontweight='bold')
             ax.set_xlabel('Action (Column)', fontsize=8)
             ax.set_ylabel('Training Episode', fontsize=8)
             
@@ -879,7 +884,7 @@ class TrainingMonitor:
             # Add colorbar
             try:
                 cbar = plt.colorbar(im, ax=ax, shrink=0.8)
-                cbar.set_label('Q-Value', fontsize=8)
+                cbar.set_label('Action Probability', fontsize=8)
             except Exception as e:
                 print(f"Warning: Could not add colorbar for {state_name}: {e}")
             

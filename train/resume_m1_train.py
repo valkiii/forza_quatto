@@ -40,12 +40,12 @@ class SelfPlayAgent:
     def update_self_play_agent(self, current_episode):
         """Update self-play agent with current main agent weights."""
         if self.self_play_net is None:
-            # Create network copy (use default hidden_size since M1 architecture doesn't store it)
+            # Create network copy with enhanced architecture parameters
             self.self_play_net = CNNDuelingDQNAgent(
                 player_id=self.player_id,
                 input_channels=self.main_agent.input_channels,
                 action_size=self.main_agent.action_size,
-                hidden_size=48,  # M1-optimized default
+                hidden_size=256,  # Enhanced architecture default
                 architecture=self.main_agent.architecture,
                 seed=42
             )
@@ -121,9 +121,9 @@ def extract_episode_from_filename(model_path: str) -> int:
 
 
 def resume_m1_cnn_training(target_episodes: int = 500000, resume_model_path: str = None):
-    """Resume M1 CNN training from checkpoint."""
-    
-    print("🔄 M1 CNN TRAINING RESUME - CONTINUING TO 500K")
+    """Resume Enhanced M1 CNN training from checkpoint."""
+
+    print("🔄 ENHANCED M1 CNN TRAINING RESUME - CONTINUING TO 500K")
     print("=" * 60)
     
     # Find model to resume from
@@ -157,7 +157,7 @@ def resume_m1_cnn_training(target_episodes: int = 500000, resume_model_path: str
     print(f"  Episodes to train: {remaining_episodes:,}")
     print(f"  Learning rate: {config['learning_rate']}")
     print(f"  Batch size: {config['batch_size']}")
-    print(f"  Architecture: M1-optimized CNN")
+    print(f"  Architecture: Enhanced M1 CNN (~550k parameters)")
     
     # Set seeds for reproducibility
     random.seed(config["random_seed"])
@@ -185,12 +185,12 @@ def resume_m1_cnn_training(target_episodes: int = 500000, resume_model_path: str
     print(f"📊 Logging to: {log_file}")
     
     # Load the trained model
-    print(f"\n🧠 Loading M1 CNN agent from checkpoint...")
+    print(f"\n🧠 Loading Enhanced M1 CNN agent from checkpoint...")
     agent = CNNDuelingDQNAgent(
         player_id=1,
         input_channels=config["input_channels"],
         action_size=7,
-        hidden_size=config["hidden_size"],
+        hidden_size=256,  # Use larger hidden size for enhanced architecture
         gamma=config["discount_factor"],
         lr=config["learning_rate"],
         epsilon_start=config["epsilon_start"],
@@ -208,9 +208,9 @@ def resume_m1_cnn_training(target_episodes: int = 500000, resume_model_path: str
     agent.load(resume_model_path, keep_player_id=True)
     
     total_params = sum(p.numel() for p in agent.online_net.parameters())
-    print(f"✅ M1 CNN agent loaded:")
+    print(f"✅ Enhanced M1 CNN agent loaded:")
     print(f"   Device: {agent.device}")
-    print(f"   Parameters: {total_params:,}")
+    print(f"   Parameters: {total_params:,} (~550k target)")
     print(f"   Current epsilon: {agent.epsilon:.6f}")
     print(f"   Training steps: {agent.train_step_count:,}")
     print(f"   Buffer size: {len(agent.memory):,}")
